@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# IDE / Windows
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store
+
+# Datasets: keep documentation only
+datasets/*
+!datasets/README.md
+
+# Generated experiment artifacts
+outputs/
+logs/
+checkpoints/
+
+# Model weights
+*.pt
+*.pth
+*.ckpt
+
+# Temporary files
+*.tmp
+*.temp
+.cache/

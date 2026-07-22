@@ -1,0 +1,11 @@
+data:
+  name: "cse_cic_ids2018"
+  root: "datasets/CSE_CIC_IDS2018"
+  cache_dir: "outputs/cache/cse_cic_ids2018"
+  known_classes: ["dos", "ddos", "botnet", "portscan"]
+  unknown_class: "webattack"
+  include_benign: true
+  max_per_class: 15000
+  window_size: 16
+  stride: 8
+  task_mode: "binary"

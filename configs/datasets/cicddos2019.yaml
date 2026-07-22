@@ -1,0 +1,11 @@
+# 模板: 将 CIC-DDoS2019 CSV 放入 datasets/CICDDoS2019/ 后使用
+data:
+  name: "cicddos2019"
+  root: "datasets/CICDDoS2019"
+  cache_dir: "outputs/cache/cicddos2019"
+  known_classes: ["dos", "ddos"]
+  unknown_class: "other"
+  include_benign: true
+  window_size: 16
+  stride: 8
+  task_mode: "binary"

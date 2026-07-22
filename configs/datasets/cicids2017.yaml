@@ -1,0 +1,32 @@
+# ===========================================================================
+# CICIDS2017 数据集配置（覆盖 base.yaml 的 data 段）
+# 用法: python scripts/train_meta.py --config configs/base.yaml \
+#         --dataset configs/datasets/cicids2017.yaml
+# ===========================================================================
+
+data:
+  name: "cicids2017"
+  root: "datasets/CICIDS2017"       # 递归发现 **/*.csv, 不假设已合并
+  cache_dir: "outputs/cache/cicids2017"
+  use_cache: true
+
+  # 默认 LOAO: known 4 类, unknown = webattack
+  known_classes: ["dos", "ddos", "botnet", "portscan"]
+  unknown_class: "webattack"
+  include_benign: true
+
+  window_size: 16
+  stride: 8
+  standardize: true
+  max_per_class: 20000
+
+  n_way: 2
+  k_shot: 5
+  q_query: 10
+  tasks_per_epoch: 100
+  meta_batch_size: 4
+  task_mode: "binary"
+  windowing_mode: "temporal"
+  window_label_strategy: "last"
+  split_mode: "temporal"
+  disallow_support_query_overlap: true

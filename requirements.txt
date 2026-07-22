@@ -1,0 +1,17 @@
+# 基于元学习 + LSTM Meta Optimizer 的移动通信网络入侵检测系统
+# Python 3.10+ 依赖清单
+#
+# 安装（CPU）:   pip install -r requirements.txt
+# 安装（CUDA）:  请先按官网安装匹配 CUDA 版本的 torch, 例如:
+#   pip install torch --index-url https://download.pytorch.org/whl/cu121
+# 再执行 pip install -r requirements.txt
+
+torch>=2.1.0            # 需要 torch.func.functional_call（无状态前向，二阶梯度）
+numpy>=1.24.0
+pandas>=2.0.0
+scikit-learn>=1.3.0
+matplotlib>=3.7.0
+tensorboard>=2.14.0
+PyYAML>=6.0
+tqdm>=4.66.0
+pytorch-lightning>=2.1.0   # 可选, 仅用于对照式 Lightning 封装

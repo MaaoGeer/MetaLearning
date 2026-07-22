@@ -1,0 +1,11 @@
+data:
+  name: "unsw_nb15"
+  root: "datasets/UNSW_NB15"
+  cache_dir: "outputs/cache/unsw_nb15"
+  known_classes: ["dos", "ddos", "exploits", "generic", "reconnaissance"]
+  unknown_class: "fuzzers"
+  include_benign: true
+  max_per_class: 15000
+  window_size: 16
+  stride: 8
+  task_mode: "binary"
