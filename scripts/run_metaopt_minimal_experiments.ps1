@@ -177,6 +177,15 @@ function Get-Median {
     return ([double]$Sorted[$Middle - 1] + [double]$Sorted[$Middle]) / 2.0
 }
 
+function ConvertTo-StrictBoolean {
+    param($Value)
+
+    if ($Value -is [bool]) {
+        return $Value
+    }
+    return [System.Boolean]::Parse("$Value")
+}
+
 function Write-ValidationReports {
     $Rows = foreach ($Variant in $AllowedVariants) {
         foreach ($Attack in @("ddos", "botnet")) {
@@ -207,9 +216,9 @@ function Write-ValidationReports {
                     MetaFinalMacroF1 = [double]$Meta.final_metrics_avg_per_task.macro_f1
                     SGDFinalMacroF1 = [double]$SGD.final_metrics_avg_per_task.macro_f1
                     AdamSelectedLR = [double]$Adam.selected_lr
-                    AdamAtLowerBoundary = [bool]$Adam.at_lower_boundary
-                    AdamAtUpperBoundary = [bool]$Adam.at_upper_boundary
-                    AdamFullyTunedClaim = [bool]$Adam.fully_tuned_claim_allowed
+                    AdamAtLowerBoundary = ConvertTo-StrictBoolean $Adam.at_lower_boundary
+                    AdamAtUpperBoundary = ConvertTo-StrictBoolean $Adam.at_upper_boundary
+                    AdamFullyTunedClaim = ConvertTo-StrictBoolean $Adam.fully_tuned_claim_allowed
                 }
             }
         }
@@ -258,7 +267,7 @@ function Write-ValidationReports {
                 UniqueWindows = [int]$Stats.unique_windows
                 WindowReuseRate = [double]$Stats.window_reuse_rate
                 RawDisjointTaskCountGreedy = [int]$Stats.raw_disjoint_task_count_greedy
-                IndependentClaimAllowed = [bool]$Info.independent_replication_claim_allowed
+                IndependentClaimAllowed = ConvertTo-StrictBoolean $Info.independent_replication_claim_allowed
             }
         }
     }

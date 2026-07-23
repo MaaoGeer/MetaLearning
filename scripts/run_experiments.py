@@ -374,8 +374,10 @@ def grid_search_lr(
 
 def _grid_boundary_status(best_lr: float, grid: List[float], method: str) -> dict:
     values = sorted({float(value) for value in grid})
-    at_lower = bool(values) and np.isclose(best_lr, values[0])
-    at_upper = bool(values) and np.isclose(best_lr, values[-1])
+    # Cast numpy.bool_ explicitly so JSON contains booleans, not the strings
+    # "True"/"False" (PowerShell treats every non-empty string as true).
+    at_lower = bool(values) and bool(np.isclose(best_lr, values[0]))
+    at_upper = bool(values) and bool(np.isclose(best_lr, values[-1]))
     if at_lower or at_upper:
         logger.warning(
             "%s validation-selected LR=%g is on the %s grid boundary; "

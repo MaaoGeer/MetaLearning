@@ -69,3 +69,15 @@ def test_select_validation_stop_step_uses_mean_curve_and_earliest_tie():
             max_steps=2),
         final_metrics=base)
     assert mod.select_validation_stop_step([o1, o2]) == 1
+
+
+def test_grid_boundary_status_uses_json_native_booleans():
+    mod = _load_run_experiments()
+    grid = [0.001, 0.003, 0.01, 0.03, 0.1, 0.3]
+    interior = mod._grid_boundary_status(0.1, grid, "Adam")
+    upper = mod._grid_boundary_status(0.3, grid, "Adam")
+
+    assert interior["at_lower_boundary"] is False
+    assert interior["at_upper_boundary"] is False
+    assert upper["at_lower_boundary"] is False
+    assert upper["at_upper_boundary"] is True
