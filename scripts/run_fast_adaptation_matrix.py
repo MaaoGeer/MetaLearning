@@ -16,6 +16,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from src.data.pipeline import _load_clean, build_pipeline  # noqa: E402
 from src.utils.config import Config, load_config  # noqa: E402
 from src.utils.logger import get_logger  # noqa: E402
+from src.utils.provenance import config_id  # noqa: E402
 
 logger = get_logger("fast_adaptation_matrix")
 
@@ -90,6 +91,10 @@ def _flatten_results(
     for experiment, result in payload.items():
         for method, method_result in result["methods"].items():
             analysis = method_result["adaptation_analysis"]
+            oracle = method_result.get(
+                "descriptive_only_test_oracle",
+                analysis.get("descriptive_only_test_oracle", {}),
+            )
             base = {
                 "unknown": unknown,
                 "seed": seed,
@@ -102,9 +107,14 @@ def _flatten_results(
                 "reach_rate": analysis["reach_rate"],
                 "mean_steps": analysis["mean_steps"],
                 "curve_auc": analysis["curve_auc_mean"],
-                "best_f1": analysis["best_f1_mean"],
+                "descriptive_oracle_best_f1": oracle.get(
+                    "best_f1_mean", analysis.get("best_f1_mean", float("nan"))
+                ),
                 "final_f1": analysis["final_f1_mean"],
-                "post_peak_drop": analysis["post_peak_drop_mean"],
+                "descriptive_post_peak_drop": oracle.get(
+                    "post_peak_drop_mean",
+                    analysis.get("post_peak_drop_mean", float("nan")),
+                ),
                 "convergence95_step": analysis.get("convergence95_step", -1),
             }
             for step, metrics in analysis["checkpoints"].items():
@@ -226,9 +236,11 @@ def _write_summary(rows: List[dict], out_dir: Path) -> None:
 
     summary = []
     metrics = (
-        "reach_rate", "mean_steps", "curve_auc", "best_f1", "final_f1",
-        "post_peak_drop", "convergence95_step", "accuracy", "macro_f1",
-        "weighted_f1", "precision", "recall", "pr_auc", "attack_recall",
+        "reach_rate", "mean_steps", "curve_auc",
+        "descriptive_oracle_best_f1", "final_f1",
+        "descriptive_post_peak_drop", "convergence95_step", "accuracy", "macro_f1",
+        "weighted_f1", "precision", "recall", "roc_auc", "pr_auc",
+        "attack_recall", "false_positive_rate", "brier_score", "ece",
     )
     for key, values in groups.items():
         item = dict(zip(
@@ -250,7 +262,11 @@ def _write_significance(rows: List[dict], out_dir: Path) -> None:
     from scipy import stats
 
     comparisons = [("MetaOpt", "Adam"), ("MetaOpt", "SGD"), ("Adam", "SGD")]
-    metrics = ["macro_f1", "accuracy", "weighted_f1", "precision", "recall", "attack_recall"]
+    metrics = [
+        "macro_f1", "accuracy", "weighted_f1", "precision", "recall",
+        "roc_auc", "pr_auc", "attack_recall", "false_positive_rate",
+        "brier_score", "ece",
+    ]
 
     indexed: Dict[tuple, Dict[str, dict]] = {}
     for row in rows:
@@ -342,12 +358,6 @@ def main() -> None:
             for train_fraction in train_fractions:
                 for horizon in horizons:
                     fraction_name = f"{train_fraction:.6f}".rstrip("0").rstrip(".")
-                    run_dir = (
-                        root / "runs" / unknown / f"fraction_{fraction_name}"
-                        / f"seed_{seed}" / f"horizon_{horizon}"
-                    )
-                    artifact = run_dir / "meta_artifacts.pt"
-                    results_path = run_dir / "evaluation" / "results.json"
                     common_overrides = [
                         f"data.unknown_class={unknown}",
                         "data.known_classes=" + json.dumps(known_map[unknown]),
@@ -356,6 +366,15 @@ def main() -> None:
                         f"experiment.seed={seed}",
                         f"meta.inner_steps={horizon}",
                     ] + list(args.override)
+                    run_cfg = cfg.apply_overrides(common_overrides)
+                    run_config_id = config_id(run_cfg.to_dict())
+                    run_dir = (
+                        root / "runs" / unknown / f"fraction_{fraction_name}"
+                        / f"seed_{seed}" / f"horizon_{horizon}"
+                        / f"config_{run_config_id}"
+                    )
+                    artifact = run_dir / "meta_artifacts.pt"
+                    results_path = run_dir / "evaluation" / "results.json"
 
                     if not (args.skip_existing and artifact.exists()):
                         _run([

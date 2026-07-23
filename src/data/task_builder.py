@@ -269,6 +269,7 @@ class AdaptationTaskSampler:
             global_classes=classes,
             support_window_ids=[support_wids[i] for i in sp.tolist()],
             query_window_ids=[query_wids[i] for i in qp.tolist()],
+            shot=self.k_shot,
         )
 
     @property

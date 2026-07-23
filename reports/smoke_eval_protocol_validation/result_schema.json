@@ -1,0 +1,20 @@
+{
+  "schema_version": 2,
+  "evaluation_phase": "validation",
+  "primary_result_fields": [
+    "fixed checkpoints",
+    "validation_selected",
+    "adaptation_analysis.curve_auc_mean",
+    "final_metrics_avg_per_task"
+  ],
+  "selection_allowed_splits": [
+    "validation"
+  ],
+  "test_selection_allowed": false,
+  "descriptive_only_fields": [
+    "descriptive_only_test_oracle"
+  ],
+  "prediction_trajectory_artifact": "reports\\smoke_eval_protocol_validation\\prediction_trajectories.npz",
+  "selection_receipt": "reports/smoke_eval_protocol_validation\\validation_selection.json",
+  "step_zero_included": true
+}

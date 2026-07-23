@@ -1,0 +1,90 @@
+{
+  "known_classes": [
+    "benign",
+    "botnet",
+    "bruteforce",
+    "dos",
+    "heartbleed",
+    "infiltration",
+    "portscan",
+    "webattack"
+  ],
+  "unknown_class": "ddos",
+  "unknown_idx": 3,
+  "raw_class_counts": {
+    "meta_train": {
+      "benign": 12000,
+      "botnet": 865,
+      "bruteforce": 5492,
+      "dos": 12000,
+      "heartbleed": 7,
+      "infiltration": 22,
+      "portscan": 1176,
+      "webattack": 1287
+    },
+    "meta_val": {
+      "benign": 4000,
+      "botnet": 288,
+      "bruteforce": 1830,
+      "dos": 4000,
+      "heartbleed": 2,
+      "infiltration": 7,
+      "portscan": 391,
+      "webattack": 428
+    },
+    "test": {
+      "benign": 4000,
+      "botnet": 288,
+      "bruteforce": 1830,
+      "dos": 4000,
+      "heartbleed": 2,
+      "infiltration": 7,
+      "portscan": 391,
+      "webattack": 428
+    },
+    "unknown": {
+      "ddos": 20000
+    }
+  },
+  "window_class_counts": {
+    "meta_train": {
+      "0": 747,
+      "6": 72,
+      "1": 51,
+      "5": 2,
+      "7": 85,
+      "2": 343,
+      "3": 750
+    },
+    "meta_val": {
+      "6": 24,
+      "1": 18,
+      "7": 26,
+      "0": 247,
+      "2": 117,
+      "3": 250
+    },
+    "adapt_val": {
+      "7": 12,
+      "1": 9,
+      "8": 26,
+      "0": 96,
+      "2": 73,
+      "4": 125,
+      "3": 625
+    },
+    "adapt_test": {
+      "7": 24,
+      "1": 18,
+      "8": 26,
+      "2": 115,
+      "0": 246,
+      "4": 253,
+      "3": 625
+    }
+  },
+  "unknown_windows": {
+    "adapt_val": 625,
+    "adapt_test": 625
+  }
+}

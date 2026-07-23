@@ -1,0 +1,91 @@
+{
+  "schema_version": 1,
+  "created_at_utc": "2026-07-23T08:30:09.633029+00:00",
+  "git_commit": "d7feeb3781addd6d680336dbbc2ac01b5023eb8d",
+  "config_id": "ce4a79498f7a",
+  "effective_config_sha256": "ce4a79498f7ac7adfb20bc193c6f041f3cbeec57bcab82b6107b37e386517abf",
+  "cache_key": {
+    "schema_version": "v3_lstm_meta_no_pretrain",
+    "data_name": "cicids2017",
+    "data_root": "E:\\Progect\\MetaLearning\\datasets\\CICIDS2017",
+    "label_mapping": {}
+  },
+  "raw_data_files": [
+    {
+      "path": "E:\\Progect\\MetaLearning\\datasets\\CICIDS2017\\Friday-WorkingHours-Afternoon-DDos.pcap_ISCX.csv",
+      "size_bytes": 77123859,
+      "mtime_ns": 1528389420000000000,
+      "sha256": null
+    },
+    {
+      "path": "E:\\Progect\\MetaLearning\\datasets\\CICIDS2017\\Friday-WorkingHours-Afternoon-PortScan.pcap_ISCX.csv",
+      "size_bytes": 76906168,
+      "mtime_ns": 1528389748000000000,
+      "sha256": null
+    },
+    {
+      "path": "E:\\Progect\\MetaLearning\\datasets\\CICIDS2017\\Friday-WorkingHours-Morning.pcap_ISCX.csv",
+      "size_bytes": 58316725,
+      "mtime_ns": 1528390305000000000,
+      "sha256": null
+    },
+    {
+      "path": "E:\\Progect\\MetaLearning\\datasets\\CICIDS2017\\Monday-WorkingHours.pcap_ISCX.csv",
+      "size_bytes": 176927918,
+      "mtime_ns": 1528391623000000000,
+      "sha256": null
+    },
+    {
+      "path": "E:\\Progect\\MetaLearning\\datasets\\CICIDS2017\\Thursday-WorkingHours-Afternoon-Infilteration.pcap_ISCX.csv",
+      "size_bytes": 83102436,
+      "mtime_ns": 1528391964000000000,
+      "sha256": null
+    },
+    {
+      "path": "E:\\Progect\\MetaLearning\\datasets\\CICIDS2017\\Thursday-WorkingHours-Morning-WebAttacks.pcap_ISCX.csv",
+      "size_bytes": 52023263,
+      "mtime_ns": 1528392165000000000,
+      "sha256": null
+    },
+    {
+      "path": "E:\\Progect\\MetaLearning\\datasets\\CICIDS2017\\Tuesday-WorkingHours.pcap_ISCX.csv",
+      "size_bytes": 135078995,
+      "mtime_ns": 1528392671000000000,
+      "sha256": null
+    },
+    {
+      "path": "E:\\Progect\\MetaLearning\\datasets\\CICIDS2017\\Wednesday-workingHours.pcap_ISCX.csv",
+      "size_bytes": 225166395,
+      "mtime_ns": 1528399599000000000,
+      "sha256": null
+    }
+  ],
+  "artifacts": {
+    "meta_artifacts": {
+      "path": "E:\\Progect\\MetaLearning\\logs\\outputs\\fast_adaptation_matrix_20260722\\runs\\ddos\\fraction_1\\seed_42\\horizon_20\\meta_artifacts.pt",
+      "sha256": "02d06f7579f1f56d6f77a61b411233323d2037857c0029b10a206527cbd9cc35"
+    },
+    "results": {
+      "path": "E:\\Progect\\MetaLearning\\reports\\smoke_eval_remediation\\results.json",
+      "sha256": "d73ec0cf6487a0f403d407b8eb886a1030b3a1895a03139187c44bb09acc1be3"
+    },
+    "prediction_trajectories": {
+      "path": "E:\\Progect\\MetaLearning\\reports\\smoke_eval_remediation\\prediction_trajectories.npz",
+      "sha256": "1c35d8d4c3553202402270bad00e2efdc074be2f2c1baa25992f126867f22ff5"
+    },
+    "effective_config": {
+      "path": "E:\\Progect\\MetaLearning\\reports\\smoke_eval_remediation\\effective_config.json",
+      "sha256": "b7c303161311e293a2d2b285f57c0f124b39013241a79d31c79a4fe635c023c6"
+    }
+  },
+  "task_manifests": [
+    {
+      "path": "E:\\Progect\\MetaLearning\\reports\\smoke_eval_remediation\\manifests\\validation_1shot.json",
+      "sha256": "b413fb556c6d19352438c5ea5cc05c2cdc8775445f757617107d2aab72a20cc8"
+    },
+    {
+      "path": "E:\\Progect\\MetaLearning\\reports\\smoke_eval_remediation\\manifests\\test_1shot.json",
+      "sha256": "17162e54163f99b4f799a0400a9e31d93da272de0c4c9ae330644b7d69e7971a"
+    }
+  ]
+}

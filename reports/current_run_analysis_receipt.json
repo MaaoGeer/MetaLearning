@@ -1,0 +1,45 @@
+{
+  "inventory": {
+    "files": 1184,
+    "bytes": 5345341271,
+    "empty_files": 0,
+    "run_count": 30,
+    "complete_runs": 30,
+    "root_outputs_exists": false
+  },
+  "traceability": {
+    "matrix_rows": 2160,
+    "expected_matrix_rows": 2160,
+    "duplicate_matrix_keys": 0,
+    "summary_rows": 432,
+    "summary_max_recompute_diff": 3.3306690738754696e-16,
+    "summary_all_n_seeds_5": true
+  },
+  "figure_paths": [
+    "reports\\current_run_figures\\adaptation_curves_macro_f1.png",
+    "reports\\current_run_figures\\confusion_matrices_final.png",
+    "reports\\current_run_figures\\final_metrics_by_attack.png",
+    "reports\\current_run_figures\\learning_dynamics.png",
+    "reports\\current_run_figures\\metaopt_paired_deltas.png",
+    "reports\\current_run_figures\\seed_variation_final_macro_f1.png",
+    "reports\\current_run_figures\\unknown_window_counts.png"
+  ],
+  "table_paths": [
+    "reports\\current_run_tables\\artifact_type_counts.csv",
+    "reports\\current_run_tables\\attack_method_final_metrics.csv",
+    "reports\\current_run_tables\\descriptive_stats_final.csv",
+    "reports\\current_run_tables\\diagnostic_summary.csv",
+    "reports\\current_run_tables\\dynamics_summary.csv",
+    "reports\\current_run_tables\\log_inventory.csv",
+    "reports\\current_run_tables\\paired_deltas.csv",
+    "reports\\current_run_tables\\per_attack_method_seed_final.csv",
+    "reports\\current_run_tables\\per_attack_method_seed_shot_final.csv",
+    "reports\\current_run_tables\\run_inventory.csv",
+    "reports\\current_run_tables\\selected_learning_rates.csv",
+    "reports\\current_run_tables\\stage_summary.csv",
+    "reports\\current_run_tables\\unknown_data_counts.csv",
+    "reports\\current_run_tables\\unknown_data_counts_by_seed.csv",
+    "reports\\current_run_tables\\validation_selected_steps.csv",
+    "reports\\current_run_tables\\win_tie_loss.csv"
+  ]
+}

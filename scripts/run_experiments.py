@@ -17,6 +17,7 @@ import csv
 import json
 import os
 import sys
+from pathlib import Path
 from typing import Dict, List, Tuple
 
 import numpy as np
@@ -25,7 +26,7 @@ import torch
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.build import build_meta_model, build_meta_optimizer, load_artifacts  # noqa: E402
-from src.data.pipeline import build_pipeline  # noqa: E402
+from src.data.pipeline import build_pipeline, cache_key as data_cache_key  # noqa: E402
 from src.data.task_sampler import MetaTask  # noqa: E402
 from src.evaluation.adaptation_speed import (  # noqa: E402
     adaptation_selection_key,
@@ -33,16 +34,22 @@ from src.evaluation.adaptation_speed import (  # noqa: E402
 )
 from src.evaluation.metrics import aggregate_logits, compute_metrics  # noqa: E402
 from src.evaluation.task_manifest import (  # noqa: E402
+    assert_manifest_split_isolation,
     load_tasks_from_manifest,
+    manifest_reuse_statistics,
     read_task_manifest,
     sha256_file,
+    tensor_state_sha256,
+    write_task_manifest,
 )
+from src.evaluation.prediction_artifact import write_prediction_trajectories  # noqa: E402
 from src.evaluation.update_analysis import update_rows_to_dicts  # noqa: E402
 from src.meta_optimizer.handcrafted import HandcraftedOptimizer  # noqa: E402
 from src.trainer.adapter import AdaptOutcome, FewShotAdapter  # noqa: E402
 from src.utils.config import Config  # noqa: E402
 from src.utils.device import resolve_device  # noqa: E402
 from src.utils.logger import get_logger  # noqa: E402
+from src.utils.provenance import raw_data_catalog, write_provenance_receipt  # noqa: E402
 from src.utils.seed import set_seed  # noqa: E402
 from src.visualization.plots import (  # noqa: E402
     plot_adaptation_curves,
@@ -63,11 +70,119 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Explicit test-task manifest. Requires a single matching compare.shots entry.",
     )
+    p.add_argument(
+        "--validation-task-manifest",
+        default=None,
+        help="Explicit validation-task manifest used for LR/stop-step selection.",
+    )
+    p.add_argument(
+        "--test-task-manifest",
+        default=None,
+        help="Explicit test-task manifest. Test is never used for selection.",
+    )
+    p.add_argument(
+        "--phase",
+        choices=["validation", "test", "both"],
+        default="both",
+        help=(
+            "Run validation-only selection, one-time test from a frozen selection "
+            "receipt, or the deprecated compatibility path that runs both."
+        ),
+    )
+    p.add_argument(
+        "--selection-receipt",
+        default=None,
+        help="validation_selection.json produced by --phase validation; required for --phase test.",
+    )
     return p.parse_args()
 
 
 def _sample_tasks(sampler, n: int) -> List[MetaTask]:
     return [sampler.sample_task() for _ in range(n)]
+
+
+def _manifest_protocol_check(
+    manifest: dict,
+    *,
+    split: str,
+    shot: int,
+    q_query: int,
+    artifact_path: str,
+    artifact: dict,
+    unknown_class: str,
+) -> None:
+    protocol = manifest["protocol"]
+    if int(protocol["shot"]) != int(shot):
+        raise ValueError(
+            f"{split} manifest shot={protocol['shot']} does not match {shot}"
+        )
+    if int(protocol["q_query"]) != int(q_query):
+        raise ValueError(
+            f"{split} manifest q_query={protocol['q_query']} does not match {q_query}"
+        )
+    if str(protocol["split"]) != split:
+        raise ValueError(
+            f"expected {split!r} manifest, got {protocol['split']!r}"
+        )
+    metadata = manifest.get("metadata", {})
+    if metadata.get("unknown_class", unknown_class) != unknown_class:
+        raise ValueError(f"{split} manifest unknown_class does not match artifact")
+    schema = int(manifest.get("schema_version", 1))
+    if schema == 1:
+        expected = str(manifest.get("base_checkpoint_sha256", ""))
+        actual = sha256_file(artifact_path)
+        if expected and expected != actual:
+            raise ValueError(
+                f"{split} legacy manifest artifact SHA256 mismatch"
+            )
+    else:
+        expected_init = str(manifest.get("base_initialization_sha256", ""))
+        actual_init = tensor_state_sha256(artifact["meta_init_state"])
+        if expected_init and expected_init != actual_init:
+            raise ValueError(
+                f"{split} manifest base initialization SHA256 mismatch"
+            )
+
+
+def _write_run_manifest(
+    path: Path,
+    tasks: List[MetaTask],
+    *,
+    split: str,
+    shot: int,
+    q_query: int,
+    task_seed: int,
+    artifact_path: str,
+    artifact: dict,
+    dataset,
+    unknown_class: str,
+    cfg: Config,
+) -> dict:
+    write_task_manifest(
+        path,
+        tasks,
+        protocol={
+            "shot": int(shot),
+            "q_query": int(q_query),
+            "split": split,
+            "task_seed": int(task_seed),
+            "attack": unknown_class,
+        },
+        base_checkpoint_path=str(Path(artifact_path).resolve()),
+        base_checkpoint_sha256=sha256_file(artifact_path),
+        base_initialization_sha256=tensor_state_sha256(
+            artifact["meta_init_state"]
+        ),
+        metadata={
+            "dataset": str(cfg.data.name),
+            "unknown_class": unknown_class,
+            "strict_adapt_test": bool(
+                cfg.data.get("strict_adapt_test", False)
+            ),
+        },
+        dataset=dataset,
+    )
+    return read_task_manifest(path)
 
 
 def _avg_trajectory(outcomes: List[AdaptOutcome]) -> List[float]:
@@ -98,6 +213,16 @@ def _avg_final_metrics(outcomes: List[AdaptOutcome]) -> Dict[str, float]:
         if o.final_metrics.false_positive_rate is not None
     ]
     out["false_positive_rate"] = float(np.mean(fprs)) if fprs else float("nan")
+    brier = [
+        o.final_metrics.brier_score for o in outcomes
+        if o.final_metrics.brier_score is not None
+    ]
+    out["brier_score"] = float(np.mean(brier)) if brier else float("nan")
+    ece = [
+        o.final_metrics.ece for o in outcomes
+        if o.final_metrics.ece is not None
+    ]
+    out["ece"] = float(np.mean(ece)) if ece else float("nan")
     return out
 
 
@@ -200,6 +325,10 @@ def _metrics_to_dict(metrics):
         "false_positive_rate": (
             metrics.false_positive_rate
             if metrics.false_positive_rate is not None else float("nan")),
+        "brier_score": (
+            metrics.brier_score
+            if metrics.brier_score is not None else float("nan")),
+        "ece": metrics.ece if metrics.ece is not None else float("nan"),
         "per_class_recall": {str(k): v for k, v in metrics.per_class_recall.items()},
         "confusion_matrix": metrics.confusion.astype(int).tolist(),
     }
@@ -243,11 +372,33 @@ def grid_search_lr(
     return best_lr
 
 
+def _grid_boundary_status(best_lr: float, grid: List[float], method: str) -> dict:
+    values = sorted({float(value) for value in grid})
+    at_lower = bool(values) and np.isclose(best_lr, values[0])
+    at_upper = bool(values) and np.isclose(best_lr, values[-1])
+    if at_lower or at_upper:
+        logger.warning(
+            "%s validation-selected LR=%g is on the %s grid boundary; "
+            "do not claim the baseline is fully tuned.",
+            method,
+            best_lr,
+            "upper" if at_upper else "lower",
+        )
+    return {
+        "selected_lr": float(best_lr),
+        "grid": values,
+        "at_lower_boundary": at_lower,
+        "at_upper_boundary": at_upper,
+        "fully_tuned_claim_allowed": not (at_lower or at_upper),
+    }
+
+
 def _write_fixed_budget_csv(all_results: Dict[str, dict], path: str) -> None:
     rows = []
     for experiment, result in all_results.items():
         for method, method_result in result["methods"].items():
             summary = method_result["adaptation_analysis"]
+            oracle = method_result.get("descriptive_only_test_oracle", {})
             for step, metrics in summary["checkpoints"].items():
                 row = {
                     "experiment": experiment,
@@ -258,9 +409,13 @@ def _write_fixed_budget_csv(all_results: Dict[str, dict], path: str) -> None:
                     "reach_rate": summary["reach_rate"],
                     "mean_steps": summary["mean_steps"],
                     "curve_auc_mean": summary["curve_auc_mean"],
-                    "best_f1_mean": summary["best_f1_mean"],
                     "final_f1_mean": summary["final_f1_mean"],
-                    "post_peak_drop_mean": summary["post_peak_drop_mean"],
+                    "descriptive_oracle_best_f1_mean": oracle.get(
+                        "best_f1_mean", float("nan")
+                    ),
+                    "descriptive_post_peak_drop_mean": oracle.get(
+                        "post_peak_drop_mean", float("nan")
+                    ),
                 }
                 for metric, stats in metrics.items():
                     row[f"{metric}_mean"] = stats["mean"]
@@ -319,6 +474,7 @@ def _curve_rows(
     experiment: str,
     shot: int,
     method: str,
+    split: str = "test",
 ) -> List[dict]:
     rows = []
     for task_id, outcome in enumerate(outcomes):
@@ -329,6 +485,7 @@ def _curve_rows(
                 "experiment": experiment,
                 "shot": int(shot),
                 "method": method,
+                "split": split,
                 "task_id": int(task_id),
                 "step": int(step),
             }
@@ -439,6 +596,27 @@ def _convergence95(summary: Dict[str, object]) -> int:
 def main() -> None:
     args = parse_args()
     art = load_artifacts(args.artifacts)
+    if args.phase == "test" and not args.selection_receipt:
+        raise ValueError("--phase test requires --selection-receipt")
+    if args.phase != "test" and args.selection_receipt:
+        raise ValueError("--selection-receipt is only valid with --phase test")
+    if args.phase == "both":
+        logger.warning(
+            "--phase both is retained for backward compatibility. For unbiased "
+            "experiments, use --phase validation and then run --phase test once "
+            "with the frozen validation_selection.json receipt."
+        )
+    selection_input = None
+    if args.selection_receipt:
+        with open(args.selection_receipt, "r", encoding="utf-8") as handle:
+            selection_input = json.load(handle)
+        if int(selection_input.get("schema_version", 0)) != 1:
+            raise ValueError("Unsupported validation selection receipt schema")
+        actual_init_hash = tensor_state_sha256(art["meta_init_state"])
+        if selection_input.get("meta_init_state_sha256") != actual_init_hash:
+            raise ValueError(
+                "Selection receipt was produced from a different theta0"
+            )
     cfg: Config = Config(art["config"])
     if args.override:
         cfg = cfg.apply_overrides(args.override)
@@ -510,45 +688,19 @@ def main() -> None:
     disallow_ov = bool(cfg.data.get("disallow_support_query_overlap", True))
     disallow_internal = bool(cfg.data.get("disallow_internal_overlap", True))
 
-    task_manifest = None
-    task_manifest_sha256 = None
-    if args.task_manifest:
-        if len(shots) != 1:
-            raise ValueError(
-                "--task-manifest requires exactly one compare.shots value so task "
-                "provenance cannot be mixed with RNG-sampled experiments."
-            )
-        task_manifest = read_task_manifest(args.task_manifest, verify_sha256=True)
-        protocol = task_manifest["protocol"]
-        if int(protocol["shot"]) != shots[0]:
-            raise ValueError(
-                f"manifest shot={protocol['shot']} does not match compare.shots={shots}"
-            )
-        if int(protocol["q_query"]) != q_query:
-            raise ValueError(
-                f"manifest q_query={protocol['q_query']} does not match config={q_query}"
-            )
-        if str(protocol["split"]) != "test":
-            raise ValueError("run_experiments only accepts a test-split task manifest")
-        expected_artifact_hash = str(task_manifest["base_checkpoint_sha256"])
-        actual_artifact_hash = sha256_file(args.artifacts)
-        if actual_artifact_hash != expected_artifact_hash:
-            raise ValueError(
-                "task manifest artifact SHA256 mismatch: "
-                f"expected={expected_artifact_hash} actual={actual_artifact_hash}"
-            )
-        manifest_metadata = task_manifest.get("metadata", {})
-        if manifest_metadata.get("unknown_class", artifact_unknown) != artifact_unknown:
-            raise ValueError("task manifest unknown_class does not match artifact")
-        if not bool(cfg.data.get("strict_adapt_test", False)):
-            raise ValueError("task manifest evaluation requires strict_adapt_test=true")
-        task_manifest_sha256 = sha256_file(args.task_manifest)
-        logger.info(
-            "Using explicit task manifest: %s | sha256=%s | tasks=%d",
-            args.task_manifest,
-            task_manifest_sha256,
-            int(task_manifest["task_count"]),
+    if args.task_manifest and args.test_task_manifest:
+        raise ValueError(
+            "--task-manifest is the deprecated alias for --test-task-manifest; "
+            "provide only one"
         )
+    external_test_manifest = args.test_task_manifest or args.task_manifest
+    external_val_manifest = args.validation_task_manifest
+    if (external_test_manifest or external_val_manifest) and len(shots) != 1:
+        raise ValueError(
+            "explicit validation/test manifests require exactly one compare.shots value"
+        )
+    if not bool(cfg.data.get("strict_adapt_test", False)):
+        raise ValueError("manifest-based evaluation requires strict_adapt_test=true")
 
     all_results: Dict[str, dict] = {}
     task_rows: List[dict] = []
@@ -556,6 +708,16 @@ def main() -> None:
     update_rows: List[dict] = []
     diagnostic_rows: List[dict] = []
     overlap_rows: List[dict] = []
+    prediction_records: List[dict] = []
+    used_manifest_paths: List[Path] = []
+    selection_output = {
+        "schema_version": 1,
+        "selection_split": "validation",
+        "test_metrics_used": False,
+        "meta_init_state_sha256": tensor_state_sha256(art["meta_init_state"]),
+        "artifact_path": str(Path(args.artifacts).resolve()),
+        "experiments": {},
+    }
 
     for exp_idx, shot in enumerate(shots, start=1):
         logger.info("==== Exp %d: %d-shot | offline temporal adaptation ====",
@@ -571,22 +733,112 @@ def main() -> None:
             seed=seed + 1000 + exp_idx, disallow_support_query_overlap=disallow_ov,
             disallow_internal_overlap=disallow_internal, split="test")
 
-        val_tasks = _sample_tasks(val_sampler, n_val)
-        if task_manifest is not None:
-            test_tasks = load_tasks_from_manifest(
-                task_manifest, bundle.adapt_test_dataset)
+        manifest_dir = Path(args.out) / "manifests"
+        manifest_dir.mkdir(parents=True, exist_ok=True)
+        val_manifest_path = Path(
+            external_val_manifest
+            or manifest_dir / f"validation_{shot}shot.json"
+        )
+        test_manifest_path = Path(
+            external_test_manifest
+            or manifest_dir / f"test_{shot}shot.json"
+        )
+
+        if val_manifest_path.exists():
+            val_manifest = read_task_manifest(
+                val_manifest_path, verify_sha256=True
+            )
+            _manifest_protocol_check(
+                val_manifest,
+                split="val", shot=shot, q_query=q_query,
+                artifact_path=args.artifacts, artifact=art,
+                unknown_class=artifact_unknown,
+            )
+            val_tasks = load_tasks_from_manifest(
+                val_manifest, bundle.adapt_val_dataset
+            )
         else:
+            if external_val_manifest:
+                raise FileNotFoundError(external_val_manifest)
+            val_tasks = _sample_tasks(val_sampler, n_val)
+            val_manifest = _write_run_manifest(
+                val_manifest_path, val_tasks,
+                split="val", shot=shot, q_query=q_query,
+                task_seed=seed + exp_idx,
+                artifact_path=args.artifacts, artifact=art,
+                dataset=bundle.adapt_val_dataset,
+                unknown_class=artifact_unknown, cfg=cfg,
+            )
+
+        if test_manifest_path.exists():
+            test_manifest = read_task_manifest(
+                test_manifest_path, verify_sha256=True
+            )
+            _manifest_protocol_check(
+                test_manifest,
+                split="test", shot=shot, q_query=q_query,
+                artifact_path=args.artifacts, artifact=art,
+                unknown_class=artifact_unknown,
+            )
+            test_tasks = load_tasks_from_manifest(
+                test_manifest, bundle.adapt_test_dataset
+            )
+        else:
+            if external_test_manifest:
+                raise FileNotFoundError(external_test_manifest)
             test_tasks = _sample_tasks(test_sampler, n_test)
+            test_manifest = _write_run_manifest(
+                test_manifest_path, test_tasks,
+                split="test", shot=shot, q_query=q_query,
+                task_seed=seed + 1000 + exp_idx,
+                artifact_path=args.artifacts, artifact=art,
+                dataset=bundle.adapt_test_dataset,
+                unknown_class=artifact_unknown, cfg=cfg,
+            )
+        assert_manifest_split_isolation(val_manifest, test_manifest)
+        used_manifest_paths.extend([val_manifest_path, test_manifest_path])
         effective_n_test = len(test_tasks)
         overlap_rows.extend(_task_overlap_audit(val_tasks, val_sampler, f"{experiment_name}_val"))
         overlap_rows.extend(_task_overlap_audit(test_tasks, test_sampler, f"{experiment_name}_test"))
 
-        sgd_lr = grid_search_lr(adapter, init_params, val_tasks, "sgd", sgd_grid,
-                                adapt_names, n_way, max_steps, target_grid, attack_idx,
-                                target_f1, checkpoints)
-        adam_lr = grid_search_lr(adapter, init_params, val_tasks, "adam", adam_grid,
-                                 adapt_names, n_way, max_steps, target_grid, attack_idx,
-                                 target_f1, checkpoints)
+        val_manifest_hash = sha256_file(val_manifest_path)
+        test_manifest_hash = sha256_file(test_manifest_path)
+        frozen_selection = None
+        if args.phase == "test":
+            frozen_selection = selection_input.get("experiments", {}).get(
+                experiment_name
+            )
+            if frozen_selection is None:
+                raise ValueError(
+                    f"Selection receipt has no entry for {experiment_name}"
+                )
+            if frozen_selection.get("validation_manifest_sha256") != val_manifest_hash:
+                raise ValueError(
+                    f"Validation manifest hash mismatch for {experiment_name}"
+                )
+            if frozen_selection.get("test_manifest_sha256") != test_manifest_hash:
+                raise ValueError(
+                    f"Test manifest hash mismatch for {experiment_name}; refusing "
+                    "to evaluate a different test task set"
+                )
+            sgd_lr = float(frozen_selection["selected_learning_rates"]["SGD"])
+            adam_lr = float(frozen_selection["selected_learning_rates"]["Adam"])
+            lr_boundary = frozen_selection["baseline_lr_validation"]
+        else:
+            sgd_lr = grid_search_lr(
+                adapter, init_params, val_tasks, "sgd", sgd_grid,
+                adapt_names, n_way, max_steps, target_grid, attack_idx,
+                target_f1, checkpoints,
+            )
+            adam_lr = grid_search_lr(
+                adapter, init_params, val_tasks, "adam", adam_grid,
+                adapt_names, n_way, max_steps, target_grid, attack_idx,
+                target_f1, checkpoints,
+            )
+            lr_boundary = {
+                "SGD": _grid_boundary_status(sgd_lr, sgd_grid, "SGD"),
+                "Adam": _grid_boundary_status(adam_lr, adam_grid, "Adam"),
+            }
 
         factories = {
             "SGD": lambda lr=sgd_lr: HandcraftedOptimizer(kind="sgd", lr=lr),
@@ -596,25 +848,153 @@ def main() -> None:
 
         shot_result = {
             "shot": shot, "sgd_lr": sgd_lr, "adam_lr": adam_lr,
-            "n_val_tasks": n_val, "n_test_tasks": effective_n_test, "methods": {},
+            "n_val_tasks": len(val_tasks), "n_test_tasks": effective_n_test, "methods": {},
+            "baseline_lr_validation": lr_boundary,
         }
-        if task_manifest is not None:
-            shot_result["task_manifest"] = {
-                "path": os.path.abspath(args.task_manifest),
-                "sha256": task_manifest_sha256,
-                "task_count": effective_n_test,
-            }
+        validation_reuse = manifest_reuse_statistics(val_manifest)
+        test_reuse = manifest_reuse_statistics(test_manifest)
+        for split_name, reuse in (
+            ("validation", validation_reuse),
+            ("test", test_reuse),
+        ):
+            if int(reuse["raw_disjoint_task_count_greedy"]) < int(
+                reuse["task_count"]
+            ):
+                logger.warning(
+                    "%s manifest has %d sampled tasks but only %d greedily "
+                    "raw-disjoint tasks. Treat sampled-task variance as "
+                    "pseudo-replication, not %d independent replications.",
+                    split_name,
+                    reuse["task_count"],
+                    reuse["raw_disjoint_task_count_greedy"],
+                    reuse["task_count"],
+                )
+        shot_result["task_manifests"] = {
+            "validation": {
+                "path": str(val_manifest_path.resolve()),
+                "sha256": val_manifest_hash,
+                "reuse_statistics": validation_reuse,
+                "independent_replication_claim_allowed": (
+                    int(validation_reuse["raw_disjoint_task_count_greedy"])
+                    == int(validation_reuse["task_count"])
+                ),
+            },
+            "test": {
+                "path": str(test_manifest_path.resolve()),
+                "sha256": test_manifest_hash,
+                "reuse_statistics": test_reuse,
+                "independent_replication_claim_allowed": (
+                    int(test_reuse["raw_disjoint_task_count_greedy"])
+                    == int(test_reuse["task_count"])
+                ),
+            },
+            "validation_test_raw_row_overlap": 0,
+        }
+        experiment_selection = {
+            "shot": int(shot),
+            "validation_manifest_sha256": val_manifest_hash,
+            "test_manifest_sha256": test_manifest_hash,
+            "selected_learning_rates": {
+                "SGD": float(sgd_lr),
+                "Adam": float(adam_lr),
+            },
+            "baseline_lr_validation": lr_boundary,
+            "methods": {},
+        }
         trajectories: Dict[str, List[float]] = {}
         speed_bars: Dict[str, float] = {}
 
         class_names = ["benign", "attack"] if n_way == 2 else [f"class{i}" for i in range(n_way)]
 
         for name, factory in factories.items():
-            val_outs_for_stop = run_method(
-                adapter, init_params, val_tasks, factory, adapt_names,
-                n_way, max_steps, target_grid, attack_idx)
-            selected_stop_step = select_validation_stop_step(
-                val_outs_for_stop, metric="macro_f1")
+            if args.phase == "test":
+                method_selection = frozen_selection.get("methods", {}).get(name)
+                if method_selection is None:
+                    raise ValueError(
+                        f"Selection receipt has no {name} entry for {experiment_name}"
+                    )
+                selected_stop_step = int(
+                    method_selection["selected_stop_step"]
+                )
+                validation_mean_curve = method_selection[
+                    "validation_mean_curve"
+                ]
+                val_outs_for_stop = []
+            else:
+                val_outs_for_stop = run_method(
+                    adapter, init_params, val_tasks, factory, adapt_names,
+                    n_way, max_steps, target_grid, attack_idx,
+                )
+                selected_stop_step = select_validation_stop_step(
+                    val_outs_for_stop, metric="macro_f1"
+                )
+                validation_mean_curve = _mean_metric_trajectory(
+                    val_outs_for_stop, metric="macro_f1"
+                )
+                validation_summary = summarize_adaptation(
+                    [outcome.speed for outcome in val_outs_for_stop],
+                    target_f1,
+                    checkpoints,
+                )
+                validation_summary.pop(
+                    "descriptive_only_test_oracle", None
+                )
+                experiment_selection["methods"][name] = {
+                    "selected_stop_step": int(selected_stop_step),
+                    "selection_metric": "macro_f1",
+                    "validation_mean_curve": validation_mean_curve,
+                    "validation_adaptation_analysis": validation_summary,
+                }
+
+            if args.phase == "validation":
+                final = _avg_final_metrics(val_outs_for_stop)
+                final["support_loss"] = _avg_support_loss(val_outs_for_stop)
+                trajectories[name] = validation_mean_curve
+                speed_bars[name] = validation_summary["mean_steps"]
+                shot_result["methods"][name] = {
+                    "validation_only": True,
+                    "validation_selected": {
+                        "selected_stop_step": int(selected_stop_step),
+                        "selection_metric": "macro_f1",
+                        "validation_mean_curve": validation_mean_curve,
+                    },
+                    "final_metrics_avg_per_task": final,
+                    "adaptation_analysis": validation_summary,
+                    "descriptive_only_test_oracle": {},
+                }
+                task_rows.extend(_task_metric_rows(
+                    val_outs_for_stop,
+                    experiment=experiment_name,
+                    shot=shot,
+                    method=name,
+                    split="validation",
+                ))
+                curve_rows.extend(_curve_rows(
+                    val_outs_for_stop,
+                    experiment=experiment_name,
+                    shot=shot,
+                    method=name,
+                    split="validation",
+                ))
+                for task_id, outcome in enumerate(val_outs_for_stop):
+                    prediction_records.append({
+                        "experiment": experiment_name,
+                        "shot": int(shot),
+                        "method": name,
+                        "split": "validation",
+                        "task_id": int(task_id),
+                        "step_logits": outcome.step_logits,
+                        "labels": outcome.step_targets,
+                    })
+                logger.info(
+                    "[%d-shot][%s][validation-only] selected stop=%d | "
+                    "final F1(avg)=%.4f",
+                    shot,
+                    name,
+                    selected_stop_step,
+                    final["f1"],
+                )
+                continue
 
             outs = run_method(adapter, init_params, test_tasks, factory, adapt_names,
                               n_way, max_steps, target_grid, attack_idx,
@@ -633,6 +1013,10 @@ def main() -> None:
             selected_speed_agg = summarize_adaptation(
                 [o.speed for o in selected_outs], target_f1,
                 [c for c in checkpoints if c <= selected_stop_step])
+            descriptive_oracle = speed_agg.pop(
+                "descriptive_only_test_oracle", {}
+            )
+            selected_speed_agg.pop("descriptive_only_test_oracle", None)
             trajectories[name] = traj
             speed_bars[name] = speed_agg["mean_steps"]
 
@@ -654,8 +1038,7 @@ def main() -> None:
                 "validation_selected": {
                     "selected_stop_step": selected_stop_step,
                     "selection_metric": "macro_f1",
-                    "validation_mean_curve": _mean_metric_trajectory(
-                        val_outs_for_stop, metric="macro_f1"),
+                    "validation_mean_curve": validation_mean_curve,
                     "final_metrics_avg_per_task": selected_final,
                     "final_metrics_pooled": _metrics_to_dict(selected_pooled),
                     "adaptation_analysis": selected_speed_agg,
@@ -664,11 +1047,11 @@ def main() -> None:
                     key: value for key, value in speed_agg.items()
                     if key not in {
                         "checkpoints", "curve_auc_mean", "curve_auc_std",
-                        "best_f1_mean", "final_f1_mean",
-                        "post_peak_drop_mean", "post_peak_drop_std",
+                        "final_f1_mean",
                     }
                 },
                 "adaptation_analysis": speed_agg,
+                "descriptive_only_test_oracle": descriptive_oracle,
             }
             task_rows.extend(_task_metric_rows(
                 outs, experiment=experiment_name, shot=shot, method=name, split="test"))
@@ -677,6 +1060,16 @@ def main() -> None:
                 split="test_validation_selected", selected_stop_step=selected_stop_step))
             curve_rows.extend(_curve_rows(
                 outs, experiment=experiment_name, shot=shot, method=name))
+            for task_id, outcome in enumerate(outs):
+                prediction_records.append({
+                    "experiment": experiment_name,
+                    "shot": int(shot),
+                    "method": name,
+                    "split": "test_fixed_horizon",
+                    "task_id": int(task_id),
+                    "step_logits": outcome.step_logits,
+                    "labels": outcome.step_targets,
+                })
             diagnostic_rows.extend(_diagnostic_rows(
                 outs,
                 experiment=experiment_name,
@@ -722,11 +1115,28 @@ def main() -> None:
         except Exception as exc:
             logger.warning("绘图失败: %s", exc)
 
+        if args.phase != "test":
+            selection_output["experiments"][experiment_name] = experiment_selection
+        shot_result["phase"] = args.phase
         all_results[experiment_name] = shot_result
 
     out_json = os.path.join(args.out, "results.json")
     with open(out_json, "w", encoding="utf-8") as f:
         json.dump(all_results, f, indent=2, ensure_ascii=False, default=str)
+    if args.phase != "test":
+        selection_receipt_path = os.path.join(
+            args.out, "validation_selection.json"
+        )
+        with open(selection_receipt_path, "w", encoding="utf-8") as handle:
+            json.dump(
+                selection_output,
+                handle,
+                indent=2,
+                ensure_ascii=False,
+                default=str,
+            )
+    else:
+        selection_receipt_path = str(Path(args.selection_receipt).resolve())
     _write_fixed_budget_csv(
         all_results, os.path.join(args.out, "fixed_budget_results.csv"))
     _write_csv(task_rows, os.path.join(args.out, "task_level_results.csv"))
@@ -740,6 +1150,69 @@ def main() -> None:
     _write_csv(
         [row for row in update_rows if row.get("group") == "all"],
         os.path.join(args.out, "gradient_evolution.csv"))
+    prediction_path = write_prediction_trajectories(
+        os.path.join(args.out, "prediction_trajectories.npz"),
+        prediction_records,
+    )
+    with open(
+        os.path.join(args.out, "result_schema.json"), "w", encoding="utf-8"
+    ) as handle:
+        json.dump({
+            "schema_version": 2,
+            "evaluation_phase": args.phase,
+            "primary_result_fields": [
+                "fixed checkpoints",
+                "validation_selected",
+                "adaptation_analysis.curve_auc_mean",
+                "final_metrics_avg_per_task",
+            ],
+            "selection_allowed_splits": ["validation"],
+            "test_selection_allowed": False,
+            "descriptive_only_fields": [
+                "descriptive_only_test_oracle",
+            ],
+            "prediction_trajectory_artifact": str(prediction_path),
+            "step_metric_artifact": os.path.join(
+                args.out, "adaptation_curves.csv"
+            ),
+            "step_diagnostic_artifact": os.path.join(
+                args.out, "step_diagnostics.csv"
+            ),
+            "step_update_artifact": os.path.join(
+                args.out, "update_analysis.csv"
+            ),
+            "selection_receipt": selection_receipt_path,
+            "step_zero_included": True,
+        }, handle, indent=2, ensure_ascii=False)
+    training_provenance_path = Path(args.artifacts).parent / "provenance.json"
+    raw_files = []
+    if training_provenance_path.exists():
+        raw_files = json.loads(
+            training_provenance_path.read_text(encoding="utf-8")
+        ).get("raw_data_files", [])
+    if not raw_files:
+        raw_files = raw_data_catalog(
+            str(cfg.data.root),
+            include_sha256=bool(
+                cfg.get("provenance", {}).get("hash_raw_data", True)
+            ),
+        )
+    write_provenance_receipt(
+        os.path.join(args.out, "provenance.json"),
+        config=cfg.to_dict(),
+        cache_key=data_cache_key(cfg),
+        raw_files=raw_files,
+        artifacts={
+            "meta_artifacts": args.artifacts,
+            "results": out_json,
+            "prediction_trajectories": prediction_path,
+            "validation_selection": selection_receipt_path,
+            "effective_config": os.path.join(
+                args.out, "effective_config.json"
+            ),
+        },
+        task_manifests=used_manifest_paths,
+    )
     logger.info("实验完成: %s", out_json)
 
 

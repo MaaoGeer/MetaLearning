@@ -13,7 +13,13 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.build import load_artifacts  # noqa: E402
 from src.data.pipeline import build_pipeline  # noqa: E402
-from src.evaluation.task_manifest import sha256_file, write_task_manifest  # noqa: E402
+from src.evaluation.task_manifest import (  # noqa: E402
+    manifest_reuse_statistics,
+    read_task_manifest,
+    sha256_file,
+    tensor_state_sha256,
+    write_task_manifest,
+)
 from src.utils.config import Config  # noqa: E402
 from src.utils.seed import set_seed  # noqa: E402
 
@@ -73,6 +79,7 @@ def main() -> None:
         "split": args.split,
         "data_split_source": split_source,
         "task_seed": int(args.task_seed),
+        "attack": str(artifact["extra"]["unknown_class"]),
         "sampler": "AdaptationTaskSampler sequential RNG stream",
     }
     metadata = {
@@ -96,7 +103,11 @@ def main() -> None:
         base_checkpoint_sha256=artifact_hash,
         metadata=metadata,
         dataset=split_dataset,
+        base_initialization_sha256=tensor_state_sha256(
+            artifact["meta_init_state"]
+        ),
     )
+    reuse = manifest_reuse_statistics(read_task_manifest(destination))
     config_path = destination.with_name(destination.stem + "_effective_config.json")
     config_path.write_text(
         json.dumps(cfg.to_dict(), indent=2, ensure_ascii=False) + "\n",
@@ -110,6 +121,7 @@ def main() -> None:
                 "artifact_sha256": artifact_hash,
                 "task_count": len(tasks),
                 "task_seed": args.task_seed,
+                "reuse_statistics": reuse,
             },
             indent=2,
         )

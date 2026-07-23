@@ -44,6 +44,14 @@ def build_meta_optimizer(cfg: Config) -> LSTMOptimizer:
         output_scale=float(m.output_scale),
         use_learnable_lr=bool(m.use_learnable_lr),
         update_norm_clip=m.get("update_norm_clip", meta_cfg.get("update_norm_clip", 1.0)),
+        update_mode=str(m.get("update_mode", "learned_delta")),
+        anchor_lr=float(m.get("anchor_lr", 0.1)),
+        learnable_anchor_lr=bool(m.get("learnable_anchor_lr", False)),
+        residual_enabled=bool(m.get("residual_enabled", True)),
+        residual_zero_init=bool(m.get("residual_zero_init", True)),
+        gate_init=float(m.get("gate_init", 0.01)),
+        learnable_gate=bool(m.get("learnable_gate", True)),
+        trust_region_factor=m.get("trust_region_factor", None),
     )
 
 

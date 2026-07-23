@@ -36,6 +36,8 @@ class ClassificationMetrics:
     attack_recall: Optional[float] = None  # 非 benign(局部标签1或攻击类) 的 recall
 
     false_positive_rate: Optional[float] = None
+    brier_score: Optional[float] = None
+    ece: Optional[float] = None
 
     def as_dict(self) -> dict:
         d = {
@@ -54,8 +56,38 @@ class ClassificationMetrics:
                 self.false_positive_rate
                 if self.false_positive_rate is not None else float("nan")
             ),
+            "brier_score": (
+                self.brier_score if self.brier_score is not None else float("nan")
+            ),
+            "ece": self.ece if self.ece is not None else float("nan"),
         }
         return d
+
+
+def _expected_calibration_error(
+    probs: np.ndarray,
+    y_true: np.ndarray,
+    n_bins: int = 10,
+) -> float:
+    """Top-label ECE with fixed-width confidence bins."""
+    confidences = probs.max(axis=1)
+    predictions = probs.argmax(axis=1)
+    correctness = (predictions == y_true).astype(np.float64)
+    edges = np.linspace(0.0, 1.0, int(n_bins) + 1)
+    ece = 0.0
+    for index in range(int(n_bins)):
+        lower, upper = edges[index], edges[index + 1]
+        in_bin = (
+            (confidences >= lower) & (confidences < upper)
+            if index < int(n_bins) - 1
+            else (confidences >= lower) & (confidences <= upper)
+        )
+        if not np.any(in_bin):
+            continue
+        ece += float(np.mean(in_bin)) * abs(
+            float(correctness[in_bin].mean()) - float(confidences[in_bin].mean())
+        )
+    return float(ece)
 
 
 def compute_metrics(
@@ -63,6 +95,7 @@ def compute_metrics(
     targets: torch.Tensor,
     num_classes: Optional[int] = None,
     attack_class_indices: Optional[List[int]] = None,
+    calibration_bins: int = 10,
 ) -> ClassificationMetrics:
     """根据 logits 与真实标签计算指标。"""
     if num_classes is None:
@@ -77,6 +110,12 @@ def compute_metrics(
     macro_f1 = float(f1_score(y_true, preds, average="macro", zero_division=0))
     weighted_f1 = float(f1_score(y_true, preds, average="weighted", zero_division=0))
     f1 = macro_f1
+    if num_classes == 2:
+        brier_score = float(np.mean((probs[:, 1] - y_true.astype(np.float64)) ** 2))
+    else:
+        one_hot_targets = np.eye(num_classes, dtype=np.float64)[y_true]
+        brier_score = float(np.mean(np.sum((probs - one_hot_targets) ** 2, axis=1)))
+    ece = _expected_calibration_error(probs, y_true, n_bins=calibration_bins)
 
     roc_auc: Optional[float] = None
     pr_auc: Optional[float] = None
@@ -117,6 +156,7 @@ def compute_metrics(
         confusion=cm, n_samples=int(len(y_true)),
         per_class_recall=per_class, attack_recall=attack_recall,
         false_positive_rate=false_positive_rate,
+        brier_score=brier_score, ece=ece,
     )
 
 

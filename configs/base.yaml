@@ -60,6 +60,15 @@ meta_optimizer:
   output_scale: 0.05
   update_norm_clip: 1.0
   use_learnable_lr: true
+  # Backward-compatible learned-delta baseline. Set to sgd_residual for E3/E4.
+  update_mode: "learned_delta"
+  anchor_lr: 0.1
+  learnable_anchor_lr: false
+  residual_enabled: true
+  residual_zero_init: true
+  gate_init: 0.01
+  learnable_gate: true
+  trust_region_factor: null
 
 meta:
   inner_steps: 5
@@ -68,6 +77,20 @@ meta:
   meta_optimizer_lr: 0.001
   update_norm_clip: 1.0
   adapt_scope: "head_only"
+  query_objective:
+    mode: "final_only"
+    supervised_steps: [20]
+    weighting: "uniform"
+    custom_weights: []
+    early_heavy_power: 0.5
+    include_sampled_horizon: true
+  random_horizon:
+    enabled: false
+    min_steps: 1
+    max_steps: 20
+  mixed_shot:
+    enabled: false
+    shots: [1, 3, 5, 10]
 
 train:
   meta_epochs: 30
@@ -82,6 +105,9 @@ train:
     patience: 10
     metric: "f1"
     mode: "max"
+  validation:
+    checkpoints: [1, 2, 5, 10, 20]
+    selection_metric: "final_f1"
   checkpoint:
     dir: "checkpoints"
     save_best: true
@@ -105,11 +131,14 @@ compare:
   test_tasks: 100
   baseline_lr_grid:
     sgd: [0.5, 0.1, 0.05, 0.01]
-    adam: [0.01, 0.005, 0.001, 0.0005]
+    adam: [0.001, 0.003, 0.01, 0.03, 0.1, 0.3]
 
 output:
   dir: "outputs"
   figures_dir: "outputs/figures"
+
+provenance:
+  hash_raw_data: true
 
 fast_adaptation_matrix:
   unknowns: "botnet,bruteforce,ddos,dos"

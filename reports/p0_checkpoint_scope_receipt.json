@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "paths": {
+    "meta_artifacts": "E:\\Progect\\MetaLearning\\logs\\outputs\\fast_adaptation_matrix_20260722\\runs\\ddos\\fraction_1\\seed_42\\horizon_20\\meta_artifacts.pt",
+    "best": "E:\\Progect\\MetaLearning\\logs\\outputs\\fast_adaptation_matrix_20260722\\runs\\ddos\\fraction_1\\seed_42\\horizon_20\\checkpoints\\best.pt",
+    "last": "E:\\Progect\\MetaLearning\\logs\\outputs\\fast_adaptation_matrix_20260722\\runs\\ddos\\fraction_1\\seed_42\\horizon_20\\checkpoints\\last.pt"
+  },
+  "file_sha256": {
+    "meta_artifacts": "02d06f7579f1f56d6f77a61b411233323d2037857c0029b10a206527cbd9cc35",
+    "best": "9989f72cf0b3d777e6dcf354cb8651312db40f09233b41923ae116408fd251ee",
+    "last": "e6e96dcb252a3b4c0ca921ad12e86d12b21a24e38c0695207cc097ac945d0cbb"
+  },
+  "tensor_state_sha256": {
+    "artifact_meta_optimizer": "ba17e1f974cd6821aae4900af5ccd2681ed5fe35b02eed18104b93005e7fd1a0",
+    "best_meta_optimizer": "ba17e1f974cd6821aae4900af5ccd2681ed5fe35b02eed18104b93005e7fd1a0",
+    "last_meta_optimizer": "ba17e1f974cd6821aae4900af5ccd2681ed5fe35b02eed18104b93005e7fd1a0",
+    "artifact_meta_init": "6d165a06464daca037bf60f3cd2105f587928c63bff5a6f55133ba9f2981cb4c"
+  },
+  "artifact_vs_best_max_abs_diff": 0.0,
+  "artifact_matches_best": true,
+  "artifact_vs_last_max_abs_diff": 0.0,
+  "scope": {
+    "effective_config": "head_only",
+    "artifact_extra": "head_only",
+    "adapt_parameter_names": [
+      "classifier.weight",
+      "classifier.bias"
+    ],
+    "tensor_count": 2,
+    "parameter_count": 66,
+    "matches_head_only_2_tensors_66_params": true
+  }
+}

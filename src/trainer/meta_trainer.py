@@ -12,7 +12,7 @@ from typing import Dict, List, Optional
 import torch
 import torch.nn as nn
 
-from ..data.task_sampler import FewShotTaskSampler
+from ..data.task_sampler import FewShotTaskSampler, MixedShotTaskSampler
 from ..evaluation.evaluator import FewShotEvaluator
 from ..evaluation.metrics import ClassificationMetrics
 from ..meta_learning.inner_loop import InnerLoop
@@ -34,6 +34,7 @@ class TrainHistory:
     val_acc: List[float] = field(default_factory=list)
     val_f1: List[float] = field(default_factory=list)
     val_auc: List[float] = field(default_factory=list)
+    val_curve_auc: List[float] = field(default_factory=list)
     epochs: List[int] = field(default_factory=list)
 
 
@@ -65,6 +66,19 @@ class MetaTrainer:
 
         meta_cfg = cfg.meta
         train_cfg = cfg.train
+        mixed_shot_cfg = meta_cfg.get("mixed_shot", {})
+        if bool(mixed_shot_cfg.get("enabled", False)):
+            self.train_sampler = MixedShotTaskSampler(
+                train_sampler,
+                shots=[int(value) for value in mixed_shot_cfg.get(
+                    "shots", [1, 3, 5, 10]
+                )],
+                seed=int(cfg.experiment.get("seed", 0)) + 7001,
+            )
+            logger.info(
+                "Mixed-shot meta-training enabled: shots=%s",
+                self.train_sampler.shots,
+            )
         for loss_key in ("inner_loss", "query_loss"):
             if loss_key in meta_cfg:
                 value = str(meta_cfg.get(loss_key)).lower()
@@ -78,7 +92,14 @@ class MetaTrainer:
             tbptt_steps=int(meta_cfg.get("tbptt_steps", 0)),
             first_order=bool(meta_cfg.get("first_order", False)),
         )
-        self.outer_loop = OuterLoop(self.model, self.inner_loop, adapt_names=adapt_names)
+        self.outer_loop = OuterLoop(
+            self.model,
+            self.inner_loop,
+            adapt_names=adapt_names,
+            query_objective=meta_cfg.get("query_objective", {}),
+            random_horizon=meta_cfg.get("random_horizon", {}),
+            seed=int(cfg.experiment.get("seed", 0)) + 8009,
+        )
 
         meta_opt_params = list(self.meta_opt.parameters())
         if not meta_opt_params:
@@ -116,6 +137,28 @@ class MetaTrainer:
             else None
         )
         self.monitor_metric = str(es_cfg.get("metric", "f1"))
+        validation_cfg = train_cfg.get("validation", {})
+        self.validation_checkpoints = [
+            int(value) for value in validation_cfg.get(
+                "checkpoints", [1, 2, 5, 10, int(meta_cfg.inner_steps)]
+            )
+            if int(value) <= int(meta_cfg.inner_steps)
+        ]
+        self.validation_selection_metric = str(
+            validation_cfg.get("selection_metric", "final_f1")
+        ).lower()
+        if (
+            bool(meta_cfg.get("random_horizon", {}).get("enabled", False))
+            and self.validation_selection_metric == "final_f1"
+        ):
+            self.validation_selection_metric = "curve_auc"
+            logger.warning(
+                "Random horizon is enabled; overriding checkpoint selection "
+                "from final_f1 to validation curve_auc."
+            )
+        self.validation_curve_weight = float(
+            validation_cfg.get("curve_auc_weight", 0.7)
+        )
 
         ck_cfg = train_cfg.checkpoint
         self.ckpt = CheckpointManager(
@@ -206,6 +249,26 @@ class MetaTrainer:
             return metrics.f1
         return float(value)
 
+    def _select_validation_metric(
+        self,
+        metrics: ClassificationMetrics,
+        curve_summary: Dict[str, object],
+    ) -> float:
+        if self.validation_selection_metric == "curve_auc":
+            return float(curve_summary["curve_auc_mean"])
+        if self.validation_selection_metric == "early_final_composite":
+            weight = self.validation_curve_weight
+            return (
+                weight * float(curve_summary["curve_auc_mean"])
+                + (1.0 - weight) * float(curve_summary["final_f1_mean"])
+            )
+        if self.validation_selection_metric != "final_f1":
+            raise ValueError(
+                "train.validation.selection_metric must be final_f1, "
+                "curve_auc, or early_final_composite"
+            )
+        return self._select_metric(metrics)
+
     def train_one_epoch(self, epoch: int) -> Dict[str, float]:
         self.model.train()
         n_updates = max(self.tasks_per_epoch // self.meta_batch_size, 1)
@@ -258,6 +321,20 @@ class MetaTrainer:
                 self.tb_writer.add_scalar("train/query_acc", result.query_acc, self.global_step)
                 self.tb_writer.add_scalar("train/support_loss", result.avg_support_loss, self.global_step)
                 self.tb_writer.add_scalar("train/update_clip_ratio", clip_ratio, self.global_step)
+                for step, value in result.query_loss_by_step.items():
+                    self.tb_writer.add_scalar(
+                        f"train/query_loss_step_{step}", value, self.global_step
+                    )
+                for step, value in result.weighted_contribution_by_step.items():
+                    self.tb_writer.add_scalar(
+                        f"train/query_weighted_step_{step}", value, self.global_step
+                    )
+                if result.sampled_horizons:
+                    self.tb_writer.add_scalar(
+                        "train/sampled_horizon_mean",
+                        sum(result.sampled_horizons) / len(result.sampled_horizons),
+                        self.global_step,
+                    )
 
             if (update_idx + 1) % self.log_interval == 0:
                 lr_phi = self.optimizer.param_groups[self._phi_group_index]["lr"]
@@ -273,6 +350,18 @@ class MetaTrainer:
                     lr_phi,
                     clip_ratio_sum / (update_idx + 1),
                     nonfinite_count,
+                )
+                logger.info(
+                    "epoch %d | supervised_query_loss=%s | weighted_contribution=%s "
+                    "| sampled_horizons=%s",
+                    epoch,
+                    {step: round(value, 6)
+                     for step, value in sorted(result.query_loss_by_step.items())},
+                    {step: round(value, 6)
+                     for step, value in sorted(
+                         result.weighted_contribution_by_step.items()
+                     )},
+                    result.sampled_horizons,
                 )
 
         avg_loss = loss_sum / n_updates
@@ -323,14 +412,27 @@ class MetaTrainer:
             is_best = False
             if epoch % self.eval_interval == 0:
                 if validation_tasks is not None:
-                    val_metrics = self.evaluator.evaluate_tasks(
-                        validation_tasks, n_way=self.val_sampler.n_way, desc=f"val@{epoch}"
+                    val_metrics, val_curve = self.evaluator.evaluate_task_curve(
+                        validation_tasks,
+                        n_way=self.val_sampler.n_way,
+                        checkpoints=self.validation_checkpoints,
+                        target_f1=float(
+                            self.cfg.adaptation_speed.get("target_f1", 0.8)
+                        ),
+                        desc=f"val@{epoch}",
                     )
                 else:
                     val_metrics = self.evaluator.evaluate(
                         self.val_sampler, num_tasks=self.eval_tasks, desc=f"val@{epoch}"
                     )
-                monitor_value = self._select_metric(val_metrics)
+                    val_curve = {
+                        "curve_auc_mean": float(val_metrics.f1),
+                        "final_f1_mean": float(val_metrics.f1),
+                        "checkpoints": {},
+                    }
+                monitor_value = self._select_validation_metric(
+                    val_metrics, val_curve
+                )
 
                 self.history.epochs.append(epoch)
                 self.history.meta_loss.append(train_stats["meta_loss"])
@@ -340,12 +442,31 @@ class MetaTrainer:
                 self.history.val_auc.append(
                     val_metrics.roc_auc if val_metrics.roc_auc is not None else float("nan")
                 )
+                self.history.val_curve_auc.append(
+                    float(val_curve["curve_auc_mean"])
+                )
 
                 if self.tb_writer is not None:
                     self.tb_writer.add_scalar("val/accuracy", val_metrics.accuracy, epoch)
                     self.tb_writer.add_scalar("val/f1", val_metrics.f1, epoch)
                     if val_metrics.roc_auc is not None:
                         self.tb_writer.add_scalar("val/roc_auc", val_metrics.roc_auc, epoch)
+                    self.tb_writer.add_scalar(
+                        "val/curve_auc", float(val_curve["curve_auc_mean"]), epoch
+                    )
+                    self.tb_writer.add_scalar(
+                        "val/selection_metric", monitor_value, epoch
+                    )
+                    for step, metric_values in val_curve.get(
+                        "checkpoints", {}
+                    ).items():
+                        macro = metric_values.get("macro_f1", {})
+                        if "mean" in macro:
+                            self.tb_writer.add_scalar(
+                                f"val/macro_f1_step_{step}",
+                                float(macro["mean"]),
+                                epoch,
+                            )
 
                 if self.best_metric is None or monitor_value > self.best_metric:
                     self.best_metric = monitor_value
@@ -372,7 +493,7 @@ class MetaTrainer:
             self.tb_writer.close()
         logger.info(
             "Meta-training finished. best %s = %.4f",
-            self.monitor_metric,
+            self.validation_selection_metric,
             self.best_metric if self.best_metric is not None else float("nan"),
         )
         return self.history

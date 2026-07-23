@@ -9,7 +9,7 @@
 from __future__ import annotations
 
 import copy
-from typing import List, Optional
+from typing import Dict, List, Optional, Tuple
 
 import torch
 import torch.nn as nn
@@ -20,6 +20,7 @@ from ..meta_learning.inner_loop import InnerLoop
 from ..meta_optimizer.lstm_optimizer import LSTMOptimizer
 from ..utils.logger import get_logger
 from .metrics import ClassificationMetrics, aggregate_logits, compute_metrics
+from .adaptation_speed import summarize_adaptation
 
 logger = get_logger(__name__)
 
@@ -96,3 +97,60 @@ class FewShotEvaluator:
         metrics = compute_metrics(logits, targets, num_classes=n_way)
         logger.info("[%s] %s", desc, metrics)
         return metrics
+
+    @torch.enable_grad()
+    def evaluate_task_curve(
+        self,
+        tasks: List[MetaTask],
+        n_way: int,
+        checkpoints: List[int],
+        target_f1: float = 0.8,
+        desc: str = "eval-curve",
+    ) -> Tuple[ClassificationMetrics, Dict[str, object]]:
+        """Evaluate fixed tasks at every step used for checkpoint selection."""
+        from ..trainer.adapter import FewShotAdapter
+
+        positive_steps = sorted({int(step) for step in checkpoints if int(step) > 0})
+        if not positive_steps:
+            raise ValueError("validation curve requires at least one positive checkpoint")
+        was_training = self.model.training
+        self.model.eval()
+        adapter = FewShotAdapter(self.model, self.device)
+        init_params = {name: param for name, param in self.model.named_parameters()}
+        attack_indices = [1] if n_way == 2 else [n_way - 1]
+        outcomes = [
+            adapter.adapt_once(
+                init_params,
+                raw_task,
+                self.meta_opt,
+                self.adapt_names or list(init_params),
+                n_way,
+                max_steps=max(positive_steps),
+                target_f1_grid=[target_f1],
+                attack_class_indices=attack_indices,
+            )
+            for raw_task in tasks
+        ]
+        logits, targets = aggregate_logits(
+            [outcome.final_logits for outcome in outcomes],
+            [outcome.final_targets for outcome in outcomes],
+        )
+        metrics = compute_metrics(
+            logits, targets, num_classes=n_way,
+            attack_class_indices=attack_indices,
+        )
+        summary = summarize_adaptation(
+            [outcome.speed for outcome in outcomes],
+            target_f1=target_f1,
+            checkpoints=[0] + positive_steps,
+        )
+        if was_training:
+            self.model.train()
+        logger.info(
+            "[%s] curve_auc=%.4f final_f1=%.4f checkpoints=%s",
+            desc,
+            summary["curve_auc_mean"],
+            summary["final_f1_mean"],
+            positive_steps,
+        )
+        return metrics, summary

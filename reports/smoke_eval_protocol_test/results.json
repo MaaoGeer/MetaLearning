@@ -1,0 +1,1127 @@
+{
+  "exp1_1shot": {
+    "shot": 1,
+    "sgd_lr": 0.5,
+    "adam_lr": 0.01,
+    "n_val_tasks": 1,
+    "n_test_tasks": 1,
+    "methods": {
+      "SGD": {
+        "final_metrics_avg_per_task": {
+          "accuracy": 0.9,
+          "precision": 0.9,
+          "recall": 0.9,
+          "f1": 0.9,
+          "macro_f1": 0.9,
+          "weighted_f1": 0.9,
+          "roc_auc": 0.98,
+          "pr_auc": 0.9809090909090908,
+          "attack_recall": 0.9,
+          "false_positive_rate": 0.1,
+          "brier_score": 0.16989374472210406,
+          "ece": 0.297881007194519,
+          "support_loss": 0.7785626649856567
+        },
+        "final_metrics_pooled": {
+          "accuracy": 0.9,
+          "precision": 0.9,
+          "recall": 0.9,
+          "f1": 0.9,
+          "macro_f1": 0.9,
+          "weighted_f1": 0.9,
+          "roc_auc": 0.98,
+          "pr_auc": 0.9809090909090908,
+          "attack_recall": 0.9,
+          "false_positive_rate": 0.1,
+          "brier_score": 0.16989374472210406,
+          "ece": 0.297881007194519,
+          "per_class_recall": {
+            "0": 0.9,
+            "1": 0.9
+          },
+          "confusion_matrix": [
+            [
+              9,
+              1
+            ],
+            [
+              1,
+              9
+            ]
+          ]
+        },
+        "validation_selected": {
+          "selected_stop_step": 1,
+          "selection_metric": "macro_f1",
+          "validation_mean_curve": [
+            0.29292929292929293,
+            0.849624060150376
+          ],
+          "final_metrics_avg_per_task": {
+            "accuracy": 0.9,
+            "precision": 0.9,
+            "recall": 0.9,
+            "f1": 0.9,
+            "macro_f1": 0.9,
+            "weighted_f1": 0.9,
+            "roc_auc": 0.98,
+            "pr_auc": 0.9809090909090908,
+            "attack_recall": 0.9,
+            "false_positive_rate": 0.1,
+            "brier_score": 0.16989374472210406,
+            "ece": 0.297881007194519,
+            "support_loss": 0.7785626649856567
+          },
+          "final_metrics_pooled": {
+            "accuracy": 0.9,
+            "precision": 0.9,
+            "recall": 0.9,
+            "f1": 0.9,
+            "macro_f1": 0.9,
+            "weighted_f1": 0.9,
+            "roc_auc": 0.98,
+            "pr_auc": 0.9809090909090908,
+            "attack_recall": 0.9,
+            "false_positive_rate": 0.1,
+            "brier_score": 0.16989374472210406,
+            "ece": 0.297881007194519,
+            "per_class_recall": {
+              "0": 0.9,
+              "1": 0.9
+            },
+            "confusion_matrix": [
+              [
+                9,
+                1
+              ],
+              [
+                1,
+                9
+              ]
+            ]
+          },
+          "adaptation_analysis": {
+            "target_f1": 0.8,
+            "mean_steps": 1.0,
+            "std_steps": 0.0,
+            "median_steps": 1.0,
+            "reach_rate": 1.0,
+            "mean_final_f1": 0.9,
+            "n": 1,
+            "checkpoints": {
+              "0": {
+                "accuracy": {
+                  "mean": 0.35,
+                  "std": 0.0,
+                  "n": 1
+                },
+                "attack_recall": {
+                  "mean": 0.3,
+                  "std": 0.0,
+                  "n": 1
+                },
+                "brier_score": {
+                  "mean": 0.2906758728230442,
+                  "std": 0.0,
+                  "n": 1
+                },
+                "ece": {
+                  "mean": 0.20963894724845888,
+                  "std": 0.0,
+                  "n": 1
+                },
+                "false_positive_rate": {
+                  "mean": 0.6,
+                  "std": 0.0,
+                  "n": 1
+                },
+                "macro_f1": {
+                  "mean": 0.3483709273182957,
+                  "std": 0.0,
+                  "n": 1
+                },
+                "pr_auc": {
+                  "mean": 0.38187687828167705,
+                  "std": 0.0,
+                  "n": 1
+                },
+                "precision": {
+                  "mean": 0.3484848484848485,
+                  "std": 0.0,
+                  "n": 1
+                },
+                "recall": {
+                  "mean": 0.35,
+                  "std": 0.0,
+                  "n": 1
+                },
+                "roc_auc": {
+                  "mean": 0.22,
+                  "std": 0.0,
+                  "n": 1
+                },
+                "weighted_f1": {
+                  "mean": 0.3483709273182957,
+                  "std": 0.0,
+                  "n": 1
+                }
+              },
+              "1": {
+                "accuracy": {
+                  "mean": 0.9,
+                  "std": 0.0,
+                  "n": 1
+                },
+                "attack_recall": {
+                  "mean": 0.9,
+                  "std": 0.0,
+                  "n": 1
+                },
+                "brier_score": {
+                  "mean": 0.16989374472210406,
+                  "std": 0.0,
+                  "n": 1
+                },
+                "ece": {
+                  "mean": 0.297881007194519,
+                  "std": 0.0,
+                  "n": 1
+                },
+                "false_positive_rate": {
+                  "mean": 0.1,
+                  "std": 0.0,
+                  "n": 1
+                },
+                "macro_f1": {
+                  "mean": 0.9,
+                  "std": 0.0,
+                  "n": 1
+                },
+                "pr_auc": {
+                  "mean": 0.9809090909090908,
+                  "std": 0.0,
+                  "n": 1
+                },
+                "precision": {
+                  "mean": 0.9,
+                  "std": 0.0,
+                  "n": 1
+                },
+                "recall": {
+                  "mean": 0.9,
+                  "std": 0.0,
+                  "n": 1
+                },
+                "roc_auc": {
+                  "mean": 0.98,
+                  "std": 0.0,
+                  "n": 1
+                },
+                "weighted_f1": {
+                  "mean": 0.9,
+                  "std": 0.0,
+                  "n": 1
+                }
+              }
+            },
+            "curve_auc_mean": 0.6241854636591478,
+            "curve_auc_std": 0.0,
+            "final_f1_mean": 0.9
+          }
+        },
+        "adaptation_speed": {
+          "target_f1": 0.8,
+          "mean_steps": 1.0,
+          "std_steps": 0.0,
+          "median_steps": 1.0,
+          "reach_rate": 1.0,
+          "mean_final_f1": 0.9,
+          "n": 1,
+          "convergence95_step": 1
+        },
+        "adaptation_analysis": {
+          "target_f1": 0.8,
+          "mean_steps": 1.0,
+          "std_steps": 0.0,
+          "median_steps": 1.0,
+          "reach_rate": 1.0,
+          "mean_final_f1": 0.9,
+          "n": 1,
+          "checkpoints": {
+            "0": {
+              "accuracy": {
+                "mean": 0.35,
+                "std": 0.0,
+                "n": 1
+              },
+              "attack_recall": {
+                "mean": 0.3,
+                "std": 0.0,
+                "n": 1
+              },
+              "brier_score": {
+                "mean": 0.2906758728230442,
+                "std": 0.0,
+                "n": 1
+              },
+              "ece": {
+                "mean": 0.20963894724845888,
+                "std": 0.0,
+                "n": 1
+              },
+              "false_positive_rate": {
+                "mean": 0.6,
+                "std": 0.0,
+                "n": 1
+              },
+              "macro_f1": {
+                "mean": 0.3483709273182957,
+                "std": 0.0,
+                "n": 1
+              },
+              "pr_auc": {
+                "mean": 0.38187687828167705,
+                "std": 0.0,
+                "n": 1
+              },
+              "precision": {
+                "mean": 0.3484848484848485,
+                "std": 0.0,
+                "n": 1
+              },
+              "recall": {
+                "mean": 0.35,
+                "std": 0.0,
+                "n": 1
+              },
+              "roc_auc": {
+                "mean": 0.22,
+                "std": 0.0,
+                "n": 1
+              },
+              "weighted_f1": {
+                "mean": 0.3483709273182957,
+                "std": 0.0,
+                "n": 1
+              }
+            },
+            "1": {
+              "accuracy": {
+                "mean": 0.9,
+                "std": 0.0,
+                "n": 1
+              },
+              "attack_recall": {
+                "mean": 0.9,
+                "std": 0.0,
+                "n": 1
+              },
+              "brier_score": {
+                "mean": 0.16989374472210406,
+                "std": 0.0,
+                "n": 1
+              },
+              "ece": {
+                "mean": 0.297881007194519,
+                "std": 0.0,
+                "n": 1
+              },
+              "false_positive_rate": {
+                "mean": 0.1,
+                "std": 0.0,
+                "n": 1
+              },
+              "macro_f1": {
+                "mean": 0.9,
+                "std": 0.0,
+                "n": 1
+              },
+              "pr_auc": {
+                "mean": 0.9809090909090908,
+                "std": 0.0,
+                "n": 1
+              },
+              "precision": {
+                "mean": 0.9,
+                "std": 0.0,
+                "n": 1
+              },
+              "recall": {
+                "mean": 0.9,
+                "std": 0.0,
+                "n": 1
+              },
+              "roc_auc": {
+                "mean": 0.98,
+                "std": 0.0,
+                "n": 1
+              },
+              "weighted_f1": {
+                "mean": 0.9,
+                "std": 0.0,
+                "n": 1
+              }
+            }
+          },
+          "curve_auc_mean": 0.6241854636591478,
+          "curve_auc_std": 0.0,
+          "final_f1_mean": 0.9,
+          "convergence95_step": 1
+        },
+        "descriptive_only_test_oracle": {
+          "best_f1_mean": 0.9,
+          "post_peak_drop_mean": 0.0,
+          "post_peak_drop_std": 0.0,
+          "allowed_for_selection": false,
+          "description": "Descriptive test-trajectory oracle; never use for model, hyperparameter, or method selection."
+        },
+        "update_clip_summary": {
+          "n_update_rows": 1,
+          "clip_ratio": 0.0
+        },
+        "nonfinite_count": 0
+      },
+      "Adam": {
+        "final_metrics_avg_per_task": {
+          "accuracy": 0.5,
+          "precision": 0.5,
+          "recall": 0.5,
+          "f1": 0.5,
+          "macro_f1": 0.5,
+          "weighted_f1": 0.5,
+          "roc_auc": 0.41000000000000003,
+          "pr_auc": 0.4567520929363034,
+          "attack_recall": 0.5,
+          "false_positive_rate": 0.5,
+          "brier_score": 0.26959174504151867,
+          "ece": 0.07177255153656008,
+          "support_loss": 0.7785626649856567
+        },
+        "final_metrics_pooled": {
+          "accuracy": 0.5,
+          "precision": 0.5,
+          "recall": 0.5,
+          "f1": 0.5,
+          "macro_f1": 0.5,
+          "weighted_f1": 0.5,
+          "roc_auc": 0.41000000000000003,
+          "pr_auc": 0.4567520929363034,
+          "attack_recall": 0.5,
+          "false_positive_rate": 0.5,
+          "brier_score": 0.26959174504151867,
+          "ece": 0.07177255153656008,
+          "per_class_recall": {
+            "0": 0.5,
+            "1": 0.5
+          },
+          "confusion_matrix": [
+            [
+              5,
+              5
+            ],
+            [
+              5,
+              5
+            ]
+          ]
+        },
+        "validation_selected": {
+          "selected_stop_step": 1,
+          "selection_metric": "macro_f1",
+          "validation_mean_curve": [
+            0.29292929292929293,
+            0.3350383631713555
+          ],
+          "final_metrics_avg_per_task": {
+            "accuracy": 0.5,
+            "precision": 0.5,
+            "recall": 0.5,
+            "f1": 0.5,
+            "macro_f1": 0.5,
+            "weighted_f1": 0.5,
+            "roc_auc": 0.41000000000000003,
+            "pr_auc": 0.4567520929363034,
+            "attack_recall": 0.5,
+            "false_positive_rate": 0.5,
+            "brier_score": 0.26959174504151867,
+            "ece": 0.07177255153656008,
+            "support_loss": 0.7785626649856567
+          },
+          "final_metrics_pooled": {
+            "accuracy": 0.5,
+            "precision": 0.5,
+            "recall": 0.5,
+            "f1": 0.5,
+            "macro_f1": 0.5,
+            "weighted_f1": 0.5,
+            "roc_auc": 0.41000000000000003,
+            "pr_auc": 0.4567520929363034,
+            "attack_recall": 0.5,
+            "false_positive_rate": 0.5,
+            "brier_score": 0.26959174504151867,
+            "ece": 0.07177255153656008,
+            "per_class_recall": {
+              "0": 0.5,
+              "1": 0.5
+            },
+            "confusion_matrix": [
+              [
+                5,
+                5
+              ],
+              [
+                5,
+                5
+              ]
+            ]
+          },
+          "adaptation_analysis": {
+            "target_f1": 0.8,
+            "mean_steps": 1.0,
+            "std_steps": 0.0,
+            "median_steps": 1.0,
+            "reach_rate": 0.0,
+            "mean_final_f1": 0.5,
+            "n": 1,
+            "checkpoints": {
+              "0": {
+                "accuracy": {
+                  "mean": 0.35,
+                  "std": 0.0,
+                  "n": 1
+                },
+                "attack_recall": {
+                  "mean": 0.3,
+                  "std": 0.0,
+                  "n": 1
+                },
+                "brier_score": {
+                  "mean": 0.2906758728230442,
+                  "std": 0.0,
+                  "n": 1
+                },
+                "ece": {
+                  "mean": 0.20963894724845888,
+                  "std": 0.0,
+                  "n": 1
+                },
+                "false_positive_rate": {
+                  "mean": 0.6,
+                  "std": 0.0,
+                  "n": 1
+                },
+                "macro_f1": {
+                  "mean": 0.3483709273182957,
+                  "std": 0.0,
+                  "n": 1
+                },
+                "pr_auc": {
+                  "mean": 0.38187687828167705,
+                  "std": 0.0,
+                  "n": 1
+                },
+                "precision": {
+                  "mean": 0.3484848484848485,
+                  "std": 0.0,
+                  "n": 1
+                },
+                "recall": {
+                  "mean": 0.35,
+                  "std": 0.0,
+                  "n": 1
+                },
+                "roc_auc": {
+                  "mean": 0.22,
+                  "std": 0.0,
+                  "n": 1
+                },
+                "weighted_f1": {
+                  "mean": 0.3483709273182957,
+                  "std": 0.0,
+                  "n": 1
+                }
+              },
+              "1": {
+                "accuracy": {
+                  "mean": 0.5,
+                  "std": 0.0,
+                  "n": 1
+                },
+                "attack_recall": {
+                  "mean": 0.5,
+                  "std": 0.0,
+                  "n": 1
+                },
+                "brier_score": {
+                  "mean": 0.26959174504151867,
+                  "std": 0.0,
+                  "n": 1
+                },
+                "ece": {
+                  "mean": 0.07177255153656008,
+                  "std": 0.0,
+                  "n": 1
+                },
+                "false_positive_rate": {
+                  "mean": 0.5,
+                  "std": 0.0,
+                  "n": 1
+                },
+                "macro_f1": {
+                  "mean": 0.5,
+                  "std": 0.0,
+                  "n": 1
+                },
+                "pr_auc": {
+                  "mean": 0.4567520929363034,
+                  "std": 0.0,
+                  "n": 1
+                },
+                "precision": {
+                  "mean": 0.5,
+                  "std": 0.0,
+                  "n": 1
+                },
+                "recall": {
+                  "mean": 0.5,
+                  "std": 0.0,
+                  "n": 1
+                },
+                "roc_auc": {
+                  "mean": 0.41000000000000003,
+                  "std": 0.0,
+                  "n": 1
+                },
+                "weighted_f1": {
+                  "mean": 0.5,
+                  "std": 0.0,
+                  "n": 1
+                }
+              }
+            },
+            "curve_auc_mean": 0.4241854636591479,
+            "curve_auc_std": 0.0,
+            "final_f1_mean": 0.5
+          }
+        },
+        "adaptation_speed": {
+          "target_f1": 0.8,
+          "mean_steps": 1.0,
+          "std_steps": 0.0,
+          "median_steps": 1.0,
+          "reach_rate": 0.0,
+          "mean_final_f1": 0.5,
+          "n": 1,
+          "convergence95_step": 1
+        },
+        "adaptation_analysis": {
+          "target_f1": 0.8,
+          "mean_steps": 1.0,
+          "std_steps": 0.0,
+          "median_steps": 1.0,
+          "reach_rate": 0.0,
+          "mean_final_f1": 0.5,
+          "n": 1,
+          "checkpoints": {
+            "0": {
+              "accuracy": {
+                "mean": 0.35,
+                "std": 0.0,
+                "n": 1
+              },
+              "attack_recall": {
+                "mean": 0.3,
+                "std": 0.0,
+                "n": 1
+              },
+              "brier_score": {
+                "mean": 0.2906758728230442,
+                "std": 0.0,
+                "n": 1
+              },
+              "ece": {
+                "mean": 0.20963894724845888,
+                "std": 0.0,
+                "n": 1
+              },
+              "false_positive_rate": {
+                "mean": 0.6,
+                "std": 0.0,
+                "n": 1
+              },
+              "macro_f1": {
+                "mean": 0.3483709273182957,
+                "std": 0.0,
+                "n": 1
+              },
+              "pr_auc": {
+                "mean": 0.38187687828167705,
+                "std": 0.0,
+                "n": 1
+              },
+              "precision": {
+                "mean": 0.3484848484848485,
+                "std": 0.0,
+                "n": 1
+              },
+              "recall": {
+                "mean": 0.35,
+                "std": 0.0,
+                "n": 1
+              },
+              "roc_auc": {
+                "mean": 0.22,
+                "std": 0.0,
+                "n": 1
+              },
+              "weighted_f1": {
+                "mean": 0.3483709273182957,
+                "std": 0.0,
+                "n": 1
+              }
+            },
+            "1": {
+              "accuracy": {
+                "mean": 0.5,
+                "std": 0.0,
+                "n": 1
+              },
+              "attack_recall": {
+                "mean": 0.5,
+                "std": 0.0,
+                "n": 1
+              },
+              "brier_score": {
+                "mean": 0.26959174504151867,
+                "std": 0.0,
+                "n": 1
+              },
+              "ece": {
+                "mean": 0.07177255153656008,
+                "std": 0.0,
+                "n": 1
+              },
+              "false_positive_rate": {
+                "mean": 0.5,
+                "std": 0.0,
+                "n": 1
+              },
+              "macro_f1": {
+                "mean": 0.5,
+                "std": 0.0,
+                "n": 1
+              },
+              "pr_auc": {
+                "mean": 0.4567520929363034,
+                "std": 0.0,
+                "n": 1
+              },
+              "precision": {
+                "mean": 0.5,
+                "std": 0.0,
+                "n": 1
+              },
+              "recall": {
+                "mean": 0.5,
+                "std": 0.0,
+                "n": 1
+              },
+              "roc_auc": {
+                "mean": 0.41000000000000003,
+                "std": 0.0,
+                "n": 1
+              },
+              "weighted_f1": {
+                "mean": 0.5,
+                "std": 0.0,
+                "n": 1
+              }
+            }
+          },
+          "curve_auc_mean": 0.4241854636591479,
+          "curve_auc_std": 0.0,
+          "final_f1_mean": 0.5,
+          "convergence95_step": 1
+        },
+        "descriptive_only_test_oracle": {
+          "best_f1_mean": 0.5,
+          "post_peak_drop_mean": 0.0,
+          "post_peak_drop_std": 0.0,
+          "allowed_for_selection": false,
+          "description": "Descriptive test-trajectory oracle; never use for model, hyperparameter, or method selection."
+        },
+        "update_clip_summary": {
+          "n_update_rows": 1,
+          "clip_ratio": 0.0
+        },
+        "nonfinite_count": 0
+      },
+      "MetaOpt": {
+        "final_metrics_avg_per_task": {
+          "accuracy": 0.4,
+          "precision": 0.4,
+          "recall": 0.4,
+          "f1": 0.4,
+          "macro_f1": 0.4,
+          "weighted_f1": 0.4,
+          "roc_auc": 0.27999999999999997,
+          "pr_auc": 0.4034840211388199,
+          "attack_recall": 0.4,
+          "false_positive_rate": 0.6,
+          "brier_score": 0.28521794655195704,
+          "ece": 0.15718450248241422,
+          "support_loss": 0.7785626649856567
+        },
+        "final_metrics_pooled": {
+          "accuracy": 0.4,
+          "precision": 0.4,
+          "recall": 0.4,
+          "f1": 0.4,
+          "macro_f1": 0.4,
+          "weighted_f1": 0.4,
+          "roc_auc": 0.27999999999999997,
+          "pr_auc": 0.4034840211388199,
+          "attack_recall": 0.4,
+          "false_positive_rate": 0.6,
+          "brier_score": 0.28521794655195704,
+          "ece": 0.15718450248241422,
+          "per_class_recall": {
+            "0": 0.4,
+            "1": 0.4
+          },
+          "confusion_matrix": [
+            [
+              4,
+              6
+            ],
+            [
+              6,
+              4
+            ]
+          ]
+        },
+        "validation_selected": {
+          "selected_stop_step": 0,
+          "selection_metric": "macro_f1",
+          "validation_mean_curve": [
+            0.29292929292929293,
+            0.29292929292929293
+          ],
+          "final_metrics_avg_per_task": {
+            "accuracy": 0.35,
+            "precision": 0.3484848484848485,
+            "recall": 0.35,
+            "f1": 0.3483709273182957,
+            "macro_f1": 0.3483709273182957,
+            "weighted_f1": 0.3483709273182957,
+            "roc_auc": 0.22,
+            "pr_auc": 0.38187687828167705,
+            "attack_recall": 0.3,
+            "false_positive_rate": 0.6,
+            "brier_score": 0.2906758728230442,
+            "ece": 0.20963894724845888,
+            "support_loss": NaN
+          },
+          "final_metrics_pooled": {
+            "accuracy": 0.35,
+            "precision": 0.3484848484848485,
+            "recall": 0.35,
+            "f1": 0.3483709273182957,
+            "macro_f1": 0.3483709273182957,
+            "weighted_f1": 0.3483709273182957,
+            "roc_auc": 0.22,
+            "pr_auc": 0.38187687828167705,
+            "attack_recall": 0.3,
+            "false_positive_rate": 0.6,
+            "brier_score": 0.2906758728230442,
+            "ece": 0.20963894724845888,
+            "per_class_recall": {
+              "0": 0.4,
+              "1": 0.3
+            },
+            "confusion_matrix": [
+              [
+                4,
+                6
+              ],
+              [
+                7,
+                3
+              ]
+            ]
+          },
+          "adaptation_analysis": {
+            "target_f1": 0.8,
+            "mean_steps": 0.0,
+            "std_steps": 0.0,
+            "median_steps": 0.0,
+            "reach_rate": 0.0,
+            "mean_final_f1": 0.3483709273182957,
+            "n": 1,
+            "checkpoints": {
+              "0": {
+                "accuracy": {
+                  "mean": 0.35,
+                  "std": 0.0,
+                  "n": 1
+                },
+                "attack_recall": {
+                  "mean": 0.3,
+                  "std": 0.0,
+                  "n": 1
+                },
+                "brier_score": {
+                  "mean": 0.2906758728230442,
+                  "std": 0.0,
+                  "n": 1
+                },
+                "ece": {
+                  "mean": 0.20963894724845888,
+                  "std": 0.0,
+                  "n": 1
+                },
+                "false_positive_rate": {
+                  "mean": 0.6,
+                  "std": 0.0,
+                  "n": 1
+                },
+                "macro_f1": {
+                  "mean": 0.3483709273182957,
+                  "std": 0.0,
+                  "n": 1
+                },
+                "pr_auc": {
+                  "mean": 0.38187687828167705,
+                  "std": 0.0,
+                  "n": 1
+                },
+                "precision": {
+                  "mean": 0.3484848484848485,
+                  "std": 0.0,
+                  "n": 1
+                },
+                "recall": {
+                  "mean": 0.35,
+                  "std": 0.0,
+                  "n": 1
+                },
+                "roc_auc": {
+                  "mean": 0.22,
+                  "std": 0.0,
+                  "n": 1
+                },
+                "weighted_f1": {
+                  "mean": 0.3483709273182957,
+                  "std": 0.0,
+                  "n": 1
+                }
+              }
+            },
+            "curve_auc_mean": 0.0,
+            "curve_auc_std": 0.0,
+            "final_f1_mean": 0.3483709273182957
+          }
+        },
+        "adaptation_speed": {
+          "target_f1": 0.8,
+          "mean_steps": 1.0,
+          "std_steps": 0.0,
+          "median_steps": 1.0,
+          "reach_rate": 0.0,
+          "mean_final_f1": 0.4,
+          "n": 1,
+          "convergence95_step": 1
+        },
+        "adaptation_analysis": {
+          "target_f1": 0.8,
+          "mean_steps": 1.0,
+          "std_steps": 0.0,
+          "median_steps": 1.0,
+          "reach_rate": 0.0,
+          "mean_final_f1": 0.4,
+          "n": 1,
+          "checkpoints": {
+            "0": {
+              "accuracy": {
+                "mean": 0.35,
+                "std": 0.0,
+                "n": 1
+              },
+              "attack_recall": {
+                "mean": 0.3,
+                "std": 0.0,
+                "n": 1
+              },
+              "brier_score": {
+                "mean": 0.2906758728230442,
+                "std": 0.0,
+                "n": 1
+              },
+              "ece": {
+                "mean": 0.20963894724845888,
+                "std": 0.0,
+                "n": 1
+              },
+              "false_positive_rate": {
+                "mean": 0.6,
+                "std": 0.0,
+                "n": 1
+              },
+              "macro_f1": {
+                "mean": 0.3483709273182957,
+                "std": 0.0,
+                "n": 1
+              },
+              "pr_auc": {
+                "mean": 0.38187687828167705,
+                "std": 0.0,
+                "n": 1
+              },
+              "precision": {
+                "mean": 0.3484848484848485,
+                "std": 0.0,
+                "n": 1
+              },
+              "recall": {
+                "mean": 0.35,
+                "std": 0.0,
+                "n": 1
+              },
+              "roc_auc": {
+                "mean": 0.22,
+                "std": 0.0,
+                "n": 1
+              },
+              "weighted_f1": {
+                "mean": 0.3483709273182957,
+                "std": 0.0,
+                "n": 1
+              }
+            },
+            "1": {
+              "accuracy": {
+                "mean": 0.4,
+                "std": 0.0,
+                "n": 1
+              },
+              "attack_recall": {
+                "mean": 0.4,
+                "std": 0.0,
+                "n": 1
+              },
+              "brier_score": {
+                "mean": 0.28521794655195704,
+                "std": 0.0,
+                "n": 1
+              },
+              "ece": {
+                "mean": 0.15718450248241422,
+                "std": 0.0,
+                "n": 1
+              },
+              "false_positive_rate": {
+                "mean": 0.6,
+                "std": 0.0,
+                "n": 1
+              },
+              "macro_f1": {
+                "mean": 0.4,
+                "std": 0.0,
+                "n": 1
+              },
+              "pr_auc": {
+                "mean": 0.4034840211388199,
+                "std": 0.0,
+                "n": 1
+              },
+              "precision": {
+                "mean": 0.4,
+                "std": 0.0,
+                "n": 1
+              },
+              "recall": {
+                "mean": 0.4,
+                "std": 0.0,
+                "n": 1
+              },
+              "roc_auc": {
+                "mean": 0.27999999999999997,
+                "std": 0.0,
+                "n": 1
+              },
+              "weighted_f1": {
+                "mean": 0.4,
+                "std": 0.0,
+                "n": 1
+              }
+            }
+          },
+          "curve_auc_mean": 0.37418546365914784,
+          "curve_auc_std": 0.0,
+          "final_f1_mean": 0.4,
+          "convergence95_step": 1
+        },
+        "descriptive_only_test_oracle": {
+          "best_f1_mean": 0.4,
+          "post_peak_drop_mean": 0.0,
+          "post_peak_drop_std": 0.0,
+          "allowed_for_selection": false,
+          "description": "Descriptive test-trajectory oracle; never use for model, hyperparameter, or method selection."
+        },
+        "update_clip_summary": {
+          "n_update_rows": 1,
+          "clip_ratio": 0.0
+        },
+        "nonfinite_count": 0
+      }
+    },
+    "baseline_lr_validation": {
+      "SGD": {
+        "selected_lr": 0.5,
+        "grid": [
+          0.5
+        ],
+        "at_lower_boundary": "True",
+        "at_upper_boundary": "True",
+        "fully_tuned_claim_allowed": false
+      },
+      "Adam": {
+        "selected_lr": 0.01,
+        "grid": [
+          0.01
+        ],
+        "at_lower_boundary": "True",
+        "at_upper_boundary": "True",
+        "fully_tuned_claim_allowed": false
+      }
+    },
+    "task_manifests": {
+      "validation": {
+        "path": "E:\\Progect\\MetaLearning\\reports\\smoke_eval_remediation\\manifests\\validation_1shot.json",
+        "sha256": "b413fb556c6d19352438c5ea5cc05c2cdc8775445f757617107d2aab72a20cc8",
+        "reuse_statistics": {
+          "task_count": 1,
+          "unique_task_hashes": 1,
+          "window_occurrences": 22,
+          "unique_windows": 22,
+          "window_reuse_rate": 0.0,
+          "raw_disjoint_task_count_greedy": 1
+        }
+      },
+      "test": {
+        "path": "E:\\Progect\\MetaLearning\\reports\\smoke_eval_remediation\\manifests\\test_1shot.json",
+        "sha256": "17162e54163f99b4f799a0400a9e31d93da272de0c4c9ae330644b7d69e7971a",
+        "reuse_statistics": {
+          "task_count": 1,
+          "unique_task_hashes": 1,
+          "window_occurrences": 22,
+          "unique_windows": 22,
+          "window_reuse_rate": 0.0,
+          "raw_disjoint_task_count_greedy": 1
+        }
+      },
+      "validation_test_raw_row_overlap": 0
+    },
+    "phase": "test"
+  }
+}

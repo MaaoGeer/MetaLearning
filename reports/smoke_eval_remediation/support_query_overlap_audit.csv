@@ -1,0 +1,3 @@
+global_classes,query_windows,split,support_query_overlap_pairs,support_windows,task_id
+"[0, 3]",20,exp1_1shot_val,0,2,0
+"[0, 3]",20,exp1_1shot_test,0,2,0

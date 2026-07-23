@@ -27,6 +27,8 @@ class AdaptOutcome:
     update_trace: UpdateTrace = None
     diagnostics: List[dict] = None
     support_losses: List[float] = None
+    step_logits: List[torch.Tensor] = None
+    step_targets: torch.Tensor = None
 
 
 class FewShotAdapter:
@@ -63,9 +65,14 @@ class FewShotAdapter:
             "precision": [],
             "recall": [],
             "pr_auc": [],
+            "roc_auc": [],
             "attack_recall": [],
+            "false_positive_rate": [],
+            "brier_score": [],
+            "ece": [],
         }
         last_logits_holder: Dict[str, torch.Tensor] = {}
+        step_logits: List[torch.Tensor] = []
         diagnostics: List[dict] = []
         support_loss_by_step: Dict[int, float] = {}
 
@@ -96,6 +103,30 @@ class FewShotAdapter:
                     if metrics.attack_recall is not None else float("nan")
                 ),
                 "normal_recall": normal_recall,
+                "roc_auc": (
+                    float(metrics.roc_auc)
+                    if metrics.roc_auc is not None else float("nan")
+                ),
+                "pr_auc": (
+                    float(metrics.pr_auc)
+                    if metrics.pr_auc is not None else float("nan")
+                ),
+                "false_positive_rate": (
+                    float(metrics.false_positive_rate)
+                    if metrics.false_positive_rate is not None else float("nan")
+                ),
+                "brier_score": (
+                    float(metrics.brier_score)
+                    if metrics.brier_score is not None else float("nan")
+                ),
+                "ece": float(metrics.ece) if metrics.ece is not None else float("nan"),
+                "theta_delta_norm": float(torch.linalg.vector_norm(torch.cat([
+                    (
+                        merged_params[name].detach().reshape(-1)
+                        - init_params[name].detach().reshape(-1)
+                    ).float()
+                    for name in adapt_names
+                ])).cpu()),
             })
             metric_traj["accuracy"].append(metrics.accuracy)
             metric_traj["macro_f1"].append(metrics.macro_f1 if metrics.macro_f1 is not None else metrics.f1)
@@ -105,9 +136,20 @@ class FewShotAdapter:
             metric_traj["recall"].append(metrics.recall)
             metric_traj["pr_auc"].append(
                 float(metrics.pr_auc) if metrics.pr_auc is not None else float("nan"))
+            metric_traj["roc_auc"].append(
+                float(metrics.roc_auc) if metrics.roc_auc is not None else float("nan"))
             metric_traj["attack_recall"].append(
                 float(metrics.attack_recall) if metrics.attack_recall is not None else float("nan"))
+            metric_traj["false_positive_rate"].append(
+                float(metrics.false_positive_rate)
+                if metrics.false_positive_rate is not None else float("nan"))
+            metric_traj["brier_score"].append(
+                float(metrics.brier_score)
+                if metrics.brier_score is not None else float("nan"))
+            metric_traj["ece"].append(
+                float(metrics.ece) if metrics.ece is not None else float("nan"))
             last_logits_holder["logits"] = q_logits.detach().float().cpu()
+            step_logits.append(q_logits.detach().float().cpu())
 
         evaluate_params(0, init_params)
 
@@ -132,7 +174,8 @@ class FewShotAdapter:
             })
 
         speed = compute_speed(
-            metric_traj["macro_f1"][1:], target_f1_grid, max_steps=max_steps)
+            metric_traj["macro_f1"], target_f1_grid, max_steps=max_steps,
+            trajectory_includes_step_zero=True)
         speed.metric_trajectories = metric_traj
         final_targets = task.query_y.cpu()
         final_logits = last_logits_holder["logits"]
@@ -150,6 +193,8 @@ class FewShotAdapter:
                 support_loss_by_step[step]
                 for step in sorted(support_loss_by_step)
             ],
+            step_logits=step_logits,
+            step_targets=task.query_y.detach().cpu(),
         )
 
     def _adapt_with_update_trace(
@@ -182,7 +227,27 @@ class FewShotAdapter:
             updates, state = optimizer.step(grad_dict, state)
             raw_updates = getattr(optimizer, "last_raw_updates", None)
             update_trace.rows.extend(
-                summarize_update_step(step + 1, grad_dict, updates, raw_updates=raw_updates)
+                summarize_update_step(
+                    step + 1,
+                    grad_dict,
+                    updates,
+                    raw_updates=raw_updates,
+                    anchor_updates=getattr(
+                        optimizer, "last_anchor_updates", None
+                    ),
+                    residual_updates=getattr(
+                        optimizer, "last_residual_updates", None
+                    ),
+                    gate_values=getattr(
+                        optimizer, "last_gate_values", None
+                    ),
+                    trust_scales=getattr(
+                        optimizer, "last_trust_scales", None
+                    ),
+                    clip_scales=getattr(
+                        optimizer, "last_clip_scales", None
+                    ),
+                )
             )
             adaptable = {name: adaptable[name] + updates[name] for name in adaptable}
             record_fn(step, {**frozen, **adaptable})

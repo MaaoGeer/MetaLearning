@@ -24,11 +24,14 @@ from src.build import (
     task_n_way,
 )
 from src.data.pipeline import build_pipeline
+from src.data.pipeline import cache_key as data_cache_key
+from src.evaluation.task_manifest import tensor_state_sha256
 from src.trainer.meta_trainer import MetaTrainer
 from src.utils.config import load_config
 from src.utils.device import resolve_device
 from src.utils.logger import get_logger
 from src.utils.seed import set_seed
+from src.utils.provenance import raw_data_catalog, write_provenance_receipt
 from src.visualization.plots import plot_training_curves
 
 logger = get_logger("train_meta")
@@ -54,6 +57,10 @@ def main() -> None:
 
     artifact_dir = os.path.dirname(args.out) or "."
     os.makedirs(artifact_dir, exist_ok=True)
+    # All future run artifacts are isolated under the run directory supplied by
+    # the launcher; historical output paths remain readable.
+    cfg.output.figures_dir = os.path.join(artifact_dir, "figures")
+    cfg.train.tensorboard.dir = os.path.join(artifact_dir, "tensorboard")
     if cfg.train.get("validation_task_audit_path", None) is None:
         cfg.train.validation_task_audit_path = os.path.join(
             artifact_dir, "validation_task_pool.json")
@@ -116,6 +123,8 @@ def main() -> None:
             "initialization": "random_shared",
             "adaptation_scope": str(cfg.meta.get("adapt_scope", "full")),
             "train_fraction": float(cfg.data.get("train_fraction", 1.0)),
+            "meta_init_state_sha256": tensor_state_sha256(meta_init_state),
+            "meta_opt_state_sha256": tensor_state_sha256(meta_opt.state_dict()),
         },
     )
 
@@ -125,6 +134,28 @@ def main() -> None:
         logger.info("Training curves: %s", path)
     except Exception as exc:  # pragma: no cover
         logger.warning("Failed to plot training curves: %s", exc)
+
+    checkpoint_dir = str(cfg.train.checkpoint.dir)
+    provenance_cfg = cfg.get("provenance", {})
+    include_raw_hash = bool(provenance_cfg.get("hash_raw_data", True))
+    validation_path = str(cfg.train.validation_task_audit_path)
+    write_provenance_receipt(
+        os.path.join(artifact_dir, "provenance.json"),
+        config=cfg.to_dict(),
+        cache_key=data_cache_key(cfg),
+        raw_files=raw_data_catalog(
+            str(cfg.data.root), include_sha256=include_raw_hash
+        ),
+        artifacts={
+            "meta_artifacts": args.out,
+            "best_checkpoint": os.path.join(checkpoint_dir, "best.pt"),
+            "last_checkpoint": os.path.join(checkpoint_dir, "last.pt"),
+            "effective_config": os.path.join(
+                artifact_dir, "effective_config.json"
+            ),
+        },
+        task_manifests=[validation_path],
+    )
 
     logger.info("Meta-training finished. Artifact: %s", args.out)
 

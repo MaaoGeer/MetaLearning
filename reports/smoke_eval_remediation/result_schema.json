@@ -1,0 +1,18 @@
+{
+  "schema_version": 2,
+  "primary_result_fields": [
+    "fixed checkpoints",
+    "validation_selected",
+    "adaptation_analysis.curve_auc_mean",
+    "final_metrics_avg_per_task"
+  ],
+  "selection_allowed_splits": [
+    "validation"
+  ],
+  "test_selection_allowed": false,
+  "descriptive_only_fields": [
+    "descriptive_only_test_oracle"
+  ],
+  "prediction_trajectory_artifact": "reports\\smoke_eval_remediation\\prediction_trajectories.npz",
+  "step_zero_included": true
+}

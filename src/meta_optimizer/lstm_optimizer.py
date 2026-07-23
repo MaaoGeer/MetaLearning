@@ -50,7 +50,15 @@ class LSTMOptimizer(nn.Module):
     def __init__(self, hidden_size: int = 20, num_layers: int = 2,
                  preprocess: bool = True, preprocess_p: float = 10.0,
                  output_scale: float = 0.1, use_learnable_lr: bool = True,
-                 update_norm_clip: Optional[float] = 1.0) -> None:
+                 update_norm_clip: Optional[float] = 1.0,
+                 update_mode: str = "learned_delta",
+                 anchor_lr: float = 0.1,
+                 learnable_anchor_lr: bool = False,
+                 residual_enabled: bool = True,
+                 residual_zero_init: bool = True,
+                 gate_init: float = 0.01,
+                 learnable_gate: bool = True,
+                 trust_region_factor: Optional[float] = None) -> None:
         """
         Args:
             hidden_size: LSTM 隐状态维度。
@@ -66,6 +74,19 @@ class LSTMOptimizer(nn.Module):
         self.preprocess = preprocess
         self.preprocess_p = preprocess_p
         self.output_scale = output_scale
+        self.update_mode = str(update_mode).lower()
+        if self.update_mode not in {"learned_delta", "sgd_residual"}:
+            raise ValueError(
+                "meta_optimizer.update_mode must be learned_delta or sgd_residual"
+            )
+        self.anchor_lr_value = float(anchor_lr)
+        self.residual_enabled = bool(residual_enabled)
+        self.gate_init = float(gate_init)
+        self.trust_region_factor = (
+            float(trust_region_factor)
+            if trust_region_factor is not None and float(trust_region_factor) > 0
+            else 0.0
+        )
         self.update_norm_clip = (
             float(update_norm_clip)
             if update_norm_clip is not None and float(update_norm_clip) > 0
@@ -73,6 +94,10 @@ class LSTMOptimizer(nn.Module):
         )
         self.last_raw_updates: Dict[str, torch.Tensor] = {}
         self.last_clip_scales: Dict[str, float] = {}
+        self.last_trust_scales: Dict[str, float] = {}
+        self.last_anchor_updates: Dict[str, torch.Tensor] = {}
+        self.last_residual_updates: Dict[str, torch.Tensor] = {}
+        self.last_gate_values: Dict[str, float] = {}
 
         input_size = 2 if preprocess else 1
         self.cells = nn.ModuleList()
@@ -82,7 +107,10 @@ class LSTMOptimizer(nn.Module):
 
         # 把隐状态映射为单坐标的更新量。初始化为极小, 使训练初期更新温和、稳定。
         self.output = nn.Linear(hidden_size, 1)
-        nn.init.normal_(self.output.weight, mean=0.0, std=1e-3)
+        if self.update_mode == "sgd_residual" and residual_zero_init:
+            nn.init.zeros_(self.output.weight)
+        else:
+            nn.init.normal_(self.output.weight, mean=0.0, std=1e-3)
         nn.init.zeros_(self.output.bias)
 
         if use_learnable_lr:
@@ -91,12 +119,46 @@ class LSTMOptimizer(nn.Module):
         else:
             self.register_parameter("raw_lr", None)
 
+        # New parameters are registered only for residual mode, so legacy
+        # learned-delta checkpoints retain the exact historical state schema.
+        if self.update_mode == "sgd_residual":
+            if learnable_anchor_lr:
+                initial = torch.log(torch.expm1(torch.tensor(max(anchor_lr, 1e-8))))
+                self.raw_anchor_lr = nn.Parameter(initial)
+            else:
+                self.register_parameter("raw_anchor_lr", None)
+            if learnable_gate:
+                bounded = min(max(float(gate_init), 1e-6), 1.0 - 1e-6)
+                self.raw_gate = nn.Parameter(
+                    torch.tensor(float(torch.logit(torch.tensor(bounded))))
+                )
+            else:
+                self.register_parameter("raw_gate", None)
+
     # ------------------------------------------------------------------ #
     @property
     def learnable_lr(self) -> torch.Tensor:
         if self.raw_lr is None:
             return torch.ones((), device=self.output.weight.device)
         return F.softplus(self.raw_lr)
+
+    @property
+    def anchor_lr(self) -> torch.Tensor:
+        if self.update_mode != "sgd_residual" or self.raw_anchor_lr is None:
+            return torch.as_tensor(
+                self.anchor_lr_value, device=self.output.weight.device,
+                dtype=self.output.weight.dtype,
+            )
+        return F.softplus(self.raw_anchor_lr)
+
+    @property
+    def residual_gate(self) -> torch.Tensor:
+        if self.update_mode != "sgd_residual" or self.raw_gate is None:
+            return torch.as_tensor(
+                self.gate_init, device=self.output.weight.device,
+                dtype=self.output.weight.dtype,
+            )
+        return torch.sigmoid(self.raw_gate)
 
     def init_state(self, params: Dict[str, torch.Tensor]) -> MetaOptState:
         """为每个参数初始化全零 hidden state。
@@ -136,6 +198,10 @@ class LSTMOptimizer(nn.Module):
         lr = self.learnable_lr
         self.last_raw_updates = {}
         self.last_clip_scales = {}
+        self.last_trust_scales = {}
+        self.last_anchor_updates = {}
+        self.last_residual_updates = {}
+        self.last_gate_values = {}
 
         for name, grad in grads.items():
             shape = grad.shape
@@ -156,19 +222,53 @@ class LSTMOptimizer(nn.Module):
 
             delta = self.output(inp).reshape(shape)    # [*shape]
             # 学习到的更新方向 × 固定缩放 × 可学习步长。
-            raw_update = delta * self.output_scale * lr
+            learned_update = delta * self.output_scale * lr
+            anchor_update = torch.zeros_like(learned_update)
+            residual_update = learned_update
+            gate = torch.ones((), device=learned_update.device, dtype=learned_update.dtype)
+            if self.update_mode == "sgd_residual":
+                anchor_update = -self.anchor_lr.to(grad) * grad
+                gate = self.residual_gate.to(grad)
+                residual_update = (
+                    gate * learned_update
+                    if self.residual_enabled else torch.zeros_like(learned_update)
+                )
+                raw_update = anchor_update + residual_update
+            else:
+                raw_update = learned_update
             update = raw_update
-            clip_scale = torch.ones((), device=raw_update.device, dtype=raw_update.dtype)
-            if self.update_norm_clip > 0:
+            trust_scale = torch.ones(
+                (), device=raw_update.device, dtype=raw_update.dtype
+            )
+            if (
+                self.update_mode == "sgd_residual"
+                and self.residual_enabled
+                and self.trust_region_factor > 0
+            ):
+                anchor_norm = torch.linalg.vector_norm(anchor_update)
                 update_norm = torch.linalg.vector_norm(raw_update)
+                trust_cap = self.trust_region_factor * torch.clamp(anchor_norm, min=1e-12)
+                trust_scale = torch.clamp(
+                    trust_cap / torch.clamp(update_norm, min=1e-12), max=1.0
+                )
+                update = raw_update * trust_scale
+            clip_scale = torch.ones((), device=raw_update.device, dtype=raw_update.dtype)
+            if self.update_norm_clip > 0 and not (
+                self.update_mode == "sgd_residual" and not self.residual_enabled
+            ):
+                update_norm = torch.linalg.vector_norm(update)
                 cap = torch.as_tensor(
                     self.update_norm_clip, device=raw_update.device, dtype=raw_update.dtype)
                 clip_scale = torch.clamp(
                     cap / torch.clamp(update_norm, min=1e-12), max=1.0)
-                update = raw_update * clip_scale
+                update = update * clip_scale
             updates[name] = update
             self.last_raw_updates[name] = raw_update.detach()
             self.last_clip_scales[name] = float(clip_scale.detach().cpu())
+            self.last_trust_scales[name] = float(trust_scale.detach().cpu())
+            self.last_anchor_updates[name] = anchor_update.detach()
+            self.last_residual_updates[name] = residual_update.detach()
+            self.last_gate_values[name] = float(gate.detach().cpu())
             new_state[name] = new_layers
 
         return updates, new_state

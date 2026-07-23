@@ -1,0 +1,7 @@
+unknown,raw_unknown_rows,adapt_val_unknown_windows,adapt_test_unknown_windows
+botnet,1441.0,45.0,45.0
+portscan,1958.0,61.0,61.0
+webattack,2143.0,67.0,66.0
+bruteforce,9152.0,286.0,286.0
+dos,20000.0,625.0,625.0
+ddos,20000.0,625.0,625.0

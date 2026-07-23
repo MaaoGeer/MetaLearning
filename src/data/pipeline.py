@@ -110,6 +110,11 @@ def _cache_key(cfg: Config) -> Dict[str, object]:
     }
 
 
+def cache_key(cfg: Config) -> Dict[str, object]:
+    """Public, serialization-safe cache provenance used in run receipts."""
+    return _cache_key(cfg)
+
+
 def _cache_paths(cfg: Config) -> str:
     cache_dir = str(cfg.data.get("cache_dir", "outputs/cache"))
     os.makedirs(cache_dir, exist_ok=True)

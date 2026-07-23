@@ -25,14 +25,19 @@ class SpeedResult:
     reached: Dict[float, bool] = field(default_factory=dict) # τ → 是否达到
     final_f1: float = 0.0
     max_steps: int = 0
+    # Compatibility-only reproduction of the historical calculation that omitted
+    # step 0. New analysis must use ``speeds``.
+    speeds_deprecated_excluding_step0: Dict[float, int] = field(default_factory=dict)
 
 
 def compute_speed(f1_trajectory: List[float], target_f1_grid: List[float],
-                  max_steps: Optional[int] = None) -> SpeedResult:
+                  max_steps: Optional[int] = None,
+                  trajectory_includes_step_zero: bool = False) -> SpeedResult:
     """根据 F1 轨迹计算各目标阈值的 Adaptation Speed。
 
     Args:
-        f1_trajectory: 长度 = 适配步数, 每步的 query-F1。第 i 项对应"第 i+1 步后"。
+        f1_trajectory: query-F1 trajectory. By default item i is after step i+1.
+            When ``trajectory_includes_step_zero=True``, item i is exactly step i.
         target_f1_grid: 目标 F1 阈值列表。
         max_steps: 上限步数; 默认取轨迹长度。
 
@@ -43,11 +48,12 @@ def compute_speed(f1_trajectory: List[float], target_f1_grid: List[float],
     cap = max_steps if max_steps is not None else n
     speeds: Dict[float, int] = {}
     reached: Dict[float, bool] = {}
+    deprecated_speeds: Dict[float, int] = {}
     for tau in target_f1_grid:
         step_reached: Optional[int] = None
         for i, f1 in enumerate(f1_trajectory):
             if f1 >= tau:
-                step_reached = i + 1          # 1-based: 第几步达到
+                step_reached = i if trajectory_includes_step_zero else i + 1
                 break
         if step_reached is None:
             speeds[tau] = cap
@@ -55,12 +61,18 @@ def compute_speed(f1_trajectory: List[float], target_f1_grid: List[float],
         else:
             speeds[tau] = step_reached
             reached[tau] = True
+        legacy_values = f1_trajectory[1:] if trajectory_includes_step_zero else f1_trajectory
+        deprecated_speeds[tau] = next(
+            (index + 1 for index, value in enumerate(legacy_values) if value >= tau),
+            cap,
+        )
     return SpeedResult(
         f1_trajectory=list(f1_trajectory),
         metric_trajectories={"macro_f1": list(f1_trajectory)},
         speeds=speeds, reached=reached,
         final_f1=f1_trajectory[-1] if f1_trajectory else 0.0,
         max_steps=cap,
+        speeds_deprecated_excluding_step0=deprecated_speeds,
     )
 
 
@@ -122,10 +134,23 @@ def summarize_adaptation(
         "checkpoints": checkpoint_summary,
         "curve_auc_mean": float(np.mean(curve_aucs)) if curve_aucs else float("nan"),
         "curve_auc_std": float(np.std(curve_aucs, ddof=1)) if len(curve_aucs) > 1 else 0.0,
-        "best_f1_mean": float(np.mean(best_f1s)) if best_f1s else float("nan"),
         "final_f1_mean": float(np.mean(final_f1s)) if final_f1s else float("nan"),
-        "post_peak_drop_mean": float(np.mean(drops)) if drops else float("nan"),
-        "post_peak_drop_std": float(np.std(drops, ddof=1)) if len(drops) > 1 else 0.0,
+        "descriptive_only_test_oracle": {
+            "best_f1_mean": (
+                float(np.mean(best_f1s)) if best_f1s else float("nan")
+            ),
+            "post_peak_drop_mean": (
+                float(np.mean(drops)) if drops else float("nan")
+            ),
+            "post_peak_drop_std": (
+                float(np.std(drops, ddof=1)) if len(drops) > 1 else 0.0
+            ),
+            "allowed_for_selection": False,
+            "description": (
+                "Descriptive test-trajectory oracle; never use for model, "
+                "hyperparameter, or method selection."
+            ),
+        },
     }
 
 

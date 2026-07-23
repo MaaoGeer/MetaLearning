@@ -26,6 +26,7 @@ class MetaTask:
     global_classes: List[int]
     support_window_ids: List[int] = field(default_factory=list)
     query_window_ids: List[int] = field(default_factory=list)
+    shot: Optional[int] = None
 
     def to(self, device: torch.device) -> "MetaTask":
         return MetaTask(
@@ -36,6 +37,7 @@ class MetaTask:
             global_classes=self.global_classes,
             support_window_ids=list(self.support_window_ids),
             query_window_ids=list(self.query_window_ids),
+            shot=self.shot,
         )
 
     @property
@@ -224,7 +226,50 @@ class FewShotTaskSampler:
             global_classes=[int(c) for c in chosen],
             support_window_ids=[support_wids[i] for i in s_perm.tolist()],
             query_window_ids=[query_wids[i] for i in q_perm.tolist()],
+            shot=self.k_shot,
         )
+
+    def sample_batch(self, meta_batch_size: int) -> List[MetaTask]:
+        return [self.sample_task() for _ in range(meta_batch_size)]
+
+
+class MixedShotTaskSampler:
+    """Seeded wrapper that samples a shot value before sampling each task."""
+
+    def __init__(
+        self,
+        prototype: FewShotTaskSampler,
+        shots: List[int],
+        seed: int,
+    ) -> None:
+        unique_shots = sorted({int(shot) for shot in shots if int(shot) > 0})
+        if not unique_shots:
+            raise ValueError("mixed-shot training requires at least one positive shot")
+        self.shots = unique_shots
+        self.rng = np.random.default_rng(int(seed))
+        self.samplers = {
+            shot: FewShotTaskSampler(
+                dataset=prototype.dataset,
+                n_way=prototype.n_way,
+                k_shot=shot,
+                q_query=prototype.q_query,
+                allowed_classes=list(prototype.class_pool),
+                seed=int(seed) + 1009 * index,
+                disallow_support_query_overlap=prototype.disallow_overlap,
+                disallow_internal_overlap=prototype.disallow_internal_overlap,
+                binary_pair_mode=prototype.binary_pair_mode,
+                benign_class=prototype.benign_class,
+            )
+            for index, shot in enumerate(unique_shots, start=1)
+        }
+        self.dataset = prototype.dataset
+        self.n_way = prototype.n_way
+        self.q_query = prototype.q_query
+        self.k_shot = prototype.k_shot
+
+    def sample_task(self) -> MetaTask:
+        shot = int(self.rng.choice(self.shots))
+        return self.samplers[shot].sample_task()
 
     def sample_batch(self, meta_batch_size: int) -> List[MetaTask]:
         return [self.sample_task() for _ in range(meta_batch_size)]
