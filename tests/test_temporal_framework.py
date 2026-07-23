@@ -1,6 +1,7 @@
 """时序窗口 / 泄漏 / 公平性 / 数据集标签映射测试。"""
 
 import logging
+from itertools import combinations
 
 import numpy as np
 import pandas as pd
@@ -15,6 +16,7 @@ from src.data.leakage import (
     check_unknown_not_in_meta_train,
     datasets_window_row_disjoint,
     raw_sample_sets_overlap,
+    window_indices_overlap,
     windows_overlap_between,
 )
 from src.data.loao import SplitArrays, build_loao
@@ -90,6 +92,43 @@ def test_support_query_no_raw_overlap():
     task = sampler.sample_task()
     ov = check_support_query_overlap(task.support_window_ids, task.query_window_ids, ds)
     assert len(ov) == 0
+
+
+def test_sampler_handles_stride_overlap_across_class_boundaries():
+    """Later-class support must not overlap an earlier-class query window."""
+    features = np.zeros((8, 2, 1), dtype=np.float32)
+    labels = np.array([0, 0, 0, 0, 1, 1, 1, 1], dtype=np.int64)
+    raw_start = np.array([0, 20, 40, 60, 5, 25, 45, 65], dtype=np.int64)
+    raw_end = raw_start + 9
+    dataset = IntrusionDataset(
+        features,
+        labels,
+        sequence_length=2,
+        raw_start=raw_start,
+        raw_end=raw_end,
+    )
+    sampler = FewShotTaskSampler(
+        dataset,
+        n_way=2,
+        k_shot=1,
+        q_query=1,
+        seed=1,
+        disallow_support_query_overlap=True,
+        disallow_internal_overlap=True,
+        binary_pair_mode="benign_vs_attack",
+        benign_class=0,
+    )
+
+    for _ in range(20):
+        task = sampler.sample_task()
+        assert not check_support_query_overlap(
+            task.support_window_ids, task.query_window_ids, dataset
+        )
+        selected = task.support_window_ids + task.query_window_ids
+        assert all(
+            not window_indices_overlap(dataset, left, right)
+            for left, right in combinations(selected, 2)
+        )
 
 
 def test_train_eval_splits_disjoint():

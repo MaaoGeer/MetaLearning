@@ -53,29 +53,36 @@ def _pick_non_overlapping_windows(
     rng: np.random.Generator,
     disallow_overlap: bool,
     disallow_internal_overlap: bool = True,
+    max_attempts: int = 32,
 ) -> List[int]:
     """从 pool 中无放回选取 k 个窗口, 不与 forbidden 中窗口共享原始样本。"""
-    shuffled = list(pool)
-    rng.shuffle(shuffled)
-    picked: List[int] = []
-    for wid in shuffled:
-        if len(picked) >= k:
-            break
-        if disallow_overlap:
+    best: List[int] = []
+    for _ in range(max(1, int(max_attempts))):
+        shuffled = list(pool)
+        rng.shuffle(shuffled)
+        picked: List[int] = []
+        for wid in shuffled:
+            if len(picked) >= k:
+                break
             conflict = False
-            for f in forbidden:
-                if window_indices_overlap(dataset, wid, f):
-                    conflict = True
-                    break
-            if disallow_internal_overlap:
+            if disallow_overlap:
+                for f in forbidden:
+                    if window_indices_overlap(dataset, wid, f):
+                        conflict = True
+                        break
+            if disallow_internal_overlap and not conflict:
                 for p in picked:
                     if window_indices_overlap(dataset, wid, p):
                         conflict = True
                         break
             if conflict:
                 continue
-        picked.append(wid)
-    return picked
+            picked.append(wid)
+        if len(picked) >= k:
+            return picked
+        if len(picked) > len(best):
+            best = picked
+    return best
 
 
 class FewShotTaskSampler:
@@ -169,7 +176,7 @@ class FewShotTaskSampler:
         for local_label, cls in enumerate(chosen):
             pool = list(self.dataset.class_to_indices[int(cls)])
             picked_s = _pick_non_overlapping_windows(
-                self.dataset, pool, self.k_shot, set(), self.rng,
+                self.dataset, pool, self.k_shot, forbidden, self.rng,
                 self.disallow_overlap,
                 disallow_internal_overlap=self.disallow_internal_overlap)
             if len(picked_s) < self.k_shot:
@@ -202,6 +209,7 @@ class FewShotTaskSampler:
                     f"{self.q_query} 个 query 窗口。")
             query_wids.extend(picked_q)
             query_local.extend([local_label] * len(picked_q))
+            forbidden.update(picked_q)
 
         if self.disallow_overlap:
             overlaps = check_support_query_overlap(support_wids, query_wids, self.dataset)

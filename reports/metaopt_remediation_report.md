@@ -424,3 +424,23 @@ E4 仅在 E1–E3 达到门槛后，将 E3 训练命令增加：
 运行 E4：**否，暂不放行**。必须先满足 E1–E3 的数值门槛和一致性条件。
 
 运行正式 6 attacks × 5 seeds × 4 shots 矩阵：**否**。尚缺 E0–E3 的验证结果、Adam 是否仍命中边界、botnet 独立 task 统计、clip/update 动力学和一次性 test 协议的完整小矩阵证据。
+
+## 13. 服务器预运行追加发现：stride-overlap sampler
+
+2026-07-23 的首次 E0/ddos/seed42 服务器启动在构造固定 meta-validation
+task 时中止，错误为 `support/query 原始样本重叠: [(133, 134)]`。服务器
+effective data protocol 使用 `window_size=16, stride=8`，相邻窗口会共享 raw
+rows。定位确认旧 `FewShotTaskSampler` 在逐类别采样时只把已选 support 加入
+`forbidden`，没有把前一类别的 query 加入下一类别 support 的 forbidden 集合；
+因此最终审计正确地拦截了跨类别 raw-row overlap。
+
+修复保持严格 overlap 检查开启：
+
+- 已选 query 同样加入后续类别的 forbidden 集合；
+- forbidden 检查和 within-selection internal-overlap 检查解耦；
+- 随机贪心选择增加 32 次有界重试，避免一次不利随机顺序造成虚假“窗口不足”；
+- 新增 stride-overlap 跨类别回归测试，旧实现可由 seed 1 稳定复现失败。
+
+修复后定向 sampler 测试 `4 passed`，全仓测试更新为
+`56 passed, 1 warning`。失败发生在第一个 epoch 前，没有生成可用于分析的
+E0 artifact；续跑应保留原输出目录并使用 launcher 的 `-Resume`。
