@@ -24,8 +24,11 @@ from src.utils.experiment_protocol import (
     stage_jobs,
 )
 from src.utils.provenance import (
+    COMMIT_SOURCE_STATE_ALGORITHM,
     assert_execution_gate,
     build_completion_receipt,
+    tracked_source_state,
+    worktree_source_state,
 )
 
 
@@ -409,6 +412,65 @@ def test_dirty_and_wrong_commit_execution_gates_fail(tmp_path):
         )
 
 
+def test_commit_source_state_is_eol_portable_and_changes_with_blob(tmp_path):
+    _git(tmp_path, "init")
+    _git(tmp_path, "config", "user.email", "cpu-test@example.invalid")
+    _git(tmp_path, "config", "user.name", "CPU Test")
+    source = tmp_path / "entry.py"
+    source.write_bytes(b"alpha\nbeta\n")
+    _git(tmp_path, "add", "entry.py")
+    _git(tmp_path, "commit", "-m", "lf source")
+    first_commit = _git(tmp_path, "rev-parse", "HEAD")
+
+    lf_commit_state = tracked_source_state(
+        tmp_path, source_paths=("entry.py",)
+    )
+    lf_worktree_state = worktree_source_state(
+        tmp_path, source_paths=("entry.py",)
+    )
+    source.write_bytes(b"alpha\r\nbeta\r\n")
+    crlf_commit_state = tracked_source_state(
+        tmp_path, source_paths=("entry.py",)
+    )
+    crlf_worktree_state = worktree_source_state(
+        tmp_path, source_paths=("entry.py",)
+    )
+
+    assert (
+        lf_commit_state["source_state_sha256"]
+        == crlf_commit_state["source_state_sha256"]
+    )
+    assert (
+        lf_worktree_state["worktree_source_state_sha256"]
+        != crlf_worktree_state["worktree_source_state_sha256"]
+    )
+    assert lf_commit_state["source_state_algorithm"] == (
+        COMMIT_SOURCE_STATE_ALGORITHM
+    )
+    assert lf_commit_state["source_state_algorithm"]["gating"] is True
+    assert (
+        crlf_worktree_state["worktree_source_state_algorithm"][
+            "diagnostic_only"
+        ]
+        is True
+    )
+    entry = lf_commit_state["tracked_source_entries"]["entry.py"]
+    assert set(entry) == {"git_blob_oid", "blob_sha256"}
+
+    source.write_bytes(b"alpha\r\nbeta changed\r\n")
+    _git(tmp_path, "add", "entry.py")
+    _git(tmp_path, "commit", "-m", "change blob content")
+    changed_state = tracked_source_state(
+        tmp_path, source_paths=("entry.py",)
+    )
+    assert changed_state["source_state_sha256"] != (
+        lf_commit_state["source_state_sha256"]
+    )
+    assert tracked_source_state(
+        tmp_path, source_paths=("entry.py",), commit=first_commit
+    )["source_state_sha256"] == lf_commit_state["source_state_sha256"]
+
+
 @pytest.mark.parametrize(
     ("status", "exit_code"),
     [("success", 0), ("failed", 1), ("interrupted", 130)],
@@ -433,7 +495,17 @@ def test_completion_receipt_fields_for_every_terminal_status(
             "parent_commit": "b" * 40,
             "worktree_clean": True,
             "source_state_sha256": "c" * 64,
+            "source_state_algorithm": COMMIT_SOURCE_STATE_ALGORITHM,
+            "source_state_commit": "a" * 40,
             "tracked_source_file_sha256": {"entry.py": "d" * 64},
+            "tracked_source_git_blob_oid": {"entry.py": "e" * 40},
+            "worktree_source_state_sha256": "f" * 64,
+            "worktree_source_state_algorithm": {
+                "name": "worktree-path-bytes-sha256",
+                "version": 1,
+                "diagnostic_only": True,
+                "gating": False,
+            },
         },
         details={
             "dataset_role": "validation",
@@ -444,14 +516,22 @@ def test_completion_receipt_fields_for_every_terminal_status(
     )
     required = {
         "completion_status", "git_commit", "parent_commit",
-        "worktree_clean", "source_state_sha256",
-        "tracked_source_file_sha256", "environment", "started_at_utc",
+        "worktree_clean", "source_state_sha256", "source_state_algorithm",
+        "source_state_commit", "worktree_source_state_sha256",
+        "worktree_source_state_algorithm",
+        "tracked_source_file_sha256", "tracked_source_git_blob_oid",
+        "environment", "started_at_utc",
         "finished_at_utc", "duration_seconds", "exit_code",
         "required_artifacts", "output_paths", "dataset_role",
         "test_dataset_constructed", "test_dataset_accessed",
         "metaopt_training_ran",
     }
     assert required <= receipt.keys()
+    assert receipt["source_state_algorithm"]["gating"] is True
+    assert (
+        receipt["worktree_source_state_algorithm"]["diagnostic_only"]
+        is True
+    )
 
 
 def test_success_receipt_requires_complete_artifacts(tmp_path):

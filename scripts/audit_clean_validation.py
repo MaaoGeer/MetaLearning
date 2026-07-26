@@ -308,6 +308,20 @@ def run(args: argparse.Namespace) -> dict:
         "git_commit": state["git_commit"],
         "worktree_clean": state["worktree_clean"],
         "source_state_sha256": state["source_state_sha256"],
+        "source_state_algorithm": state["source_state_algorithm"],
+        "source_state_commit": state["source_state_commit"],
+        "tracked_source_file_sha256": state[
+            "tracked_source_file_sha256"
+        ],
+        "tracked_source_git_blob_oid": state[
+            "tracked_source_git_blob_oid"
+        ],
+        "worktree_source_state_sha256": state[
+            "worktree_source_state_sha256"
+        ],
+        "worktree_source_state_algorithm": state[
+            "worktree_source_state_algorithm"
+        ],
         "run_count": len(rows),
         "expected_run_count": 16,
         "all_runs_complete": True,

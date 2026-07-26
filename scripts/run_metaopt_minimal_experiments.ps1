@@ -259,7 +259,21 @@ print(json.dumps(runtime_environment(), ensure_ascii=False))
         parent_commit = if ($null -ne $Gate) { $Gate.parent_commit } else { $null }
         worktree_clean = if ($null -ne $Gate) { $Gate.worktree_clean } else { $null }
         source_state_sha256 = if ($null -ne $Gate) { $Gate.source_state_sha256 } else { $null }
+        source_state_algorithm = if ($null -ne $Gate) { $Gate.source_state_algorithm } else { $null }
+        source_state_commit = if ($null -ne $Gate) { $Gate.source_state_commit } else { $null }
         tracked_source_file_sha256 = $TrackedHashes
+        tracked_source_git_blob_oid = if ($null -ne $Gate) {
+            $Gate.tracked_source_git_blob_oid
+        } else { @{} }
+        worktree_source_state_sha256 = if ($null -ne $Gate) {
+            $Gate.worktree_source_state_sha256
+        } else { $null }
+        worktree_source_state_algorithm = if ($null -ne $Gate) {
+            $Gate.worktree_source_state_algorithm
+        } else { $null }
+        worktree_source_file_sha256 = if ($null -ne $Gate) {
+            $Gate.worktree_source_file_sha256
+        } else { @{} }
         plan = $Plan
         effective_config_hashes = $RunStateRows
         dataset_fingerprints = @(
@@ -372,7 +386,13 @@ function Write-RunReceipt {
         parent_commit = $Gate.parent_commit
         worktree_clean = $Gate.worktree_clean
         source_state_sha256 = $Gate.source_state_sha256
+        source_state_algorithm = $Gate.source_state_algorithm
+        source_state_commit = $Gate.source_state_commit
         tracked_source_file_sha256 = $Gate.tracked_source_file_sha256
+        tracked_source_git_blob_oid = $Gate.tracked_source_git_blob_oid
+        worktree_source_state_sha256 = $Gate.worktree_source_state_sha256
+        worktree_source_state_algorithm = $Gate.worktree_source_state_algorithm
+        worktree_source_file_sha256 = $Gate.worktree_source_file_sha256
         effective_config_path = [System.IO.Path]::GetFullPath($EffectiveConfig)
         effective_config_sha256 = Get-Sha256 $EffectiveConfig
         dataset_role = "validation"

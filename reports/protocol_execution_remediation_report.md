@@ -126,9 +126,17 @@ E0–E3 override 只有一个实现来源：
 
 - full Git commit；
 - `git status --porcelain` 为空；
-- 可选的 source-state hash；
+- 可选的、基于当前 commit Git blob 的 portable source-state hash；
 - runner、配置、pipeline、task/manifest、模型构建、MetaOpt、trainer 和指标
   关键文件均由 Git 跟踪并具有 SHA-256。
+
+正式 gating 字段使用算法
+`git-commit-blob-path-content-sha256/v1`：对排序后的仓库相对路径建立
+`path -> {git_blob_oid, blob_sha256}` 映射，再对 canonical JSON 求 SHA-256。
+因此该值不受 CRLF/LF、`core.autocrlf` 或操作系统影响。工作区原始字节另以
+`worktree-path-bytes-sha256/v1` 记录，并明确标记为
+`diagnostic_only=true, gating=false`；它可用于解释检出差异，但不得用于跨机器
+放行。
 
 阶段/run 回执包含适用的：
 

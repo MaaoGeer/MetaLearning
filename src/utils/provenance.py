@@ -43,6 +43,22 @@ DEFAULT_EXECUTION_SOURCE_PATHS = (
     "src/utils/provenance.py",
 )
 
+COMMIT_SOURCE_STATE_ALGORITHM = {
+    "name": "git-commit-blob-path-content-sha256",
+    "version": 1,
+    "entry_encoding": "canonical-json(path -> {git_blob_oid, blob_sha256})",
+    "cross_platform": True,
+    "gating": True,
+}
+WORKTREE_SOURCE_STATE_ALGORITHM = {
+    "name": "worktree-path-bytes-sha256",
+    "version": 1,
+    "entry_encoding": "canonical-json(path -> worktree_byte_sha256)",
+    "cross_platform": False,
+    "gating": False,
+    "diagnostic_only": True,
+}
+
 
 def sha256_file(path: str | Path) -> str:
     digest = hashlib.sha256()
@@ -84,6 +100,14 @@ def _git_output(repo_root: str | Path, *args: str) -> str:
     ).strip()
 
 
+def _git_bytes(repo_root: str | Path, *args: str) -> bytes:
+    return subprocess.check_output(
+        ["git", *args],
+        cwd=str(repo_root),
+        stderr=subprocess.DEVNULL,
+    )
+
+
 def git_worktree_state(repo_root: str | Path = ".") -> dict:
     """Return commit and tracked/untracked cleanliness without counting ignored outputs."""
     root = Path(_git_output(repo_root, "rev-parse", "--show-toplevel"))
@@ -108,25 +132,69 @@ def git_worktree_state(repo_root: str | Path = ".") -> dict:
 def tracked_source_state(
     repo_root: str | Path = ".",
     source_paths: Sequence[str] = DEFAULT_EXECUTION_SOURCE_PATHS,
+    *,
+    commit: str = "HEAD",
 ) -> dict:
-    """Hash a declared, Git-tracked execution surface in stable path order."""
+    """Hash path-addressed Git blobs from one commit, independent of checkout EOLs."""
+    root = Path(_git_output(repo_root, "rev-parse", "--show-toplevel"))
+    resolved_commit = _git_output(root, "rev-parse", commit)
+    entries = {}
+    file_sha256 = {}
+    blob_oids = {}
+    for raw_path in sorted(set(source_paths)):
+        relative = Path(raw_path).as_posix()
+        if Path(relative).is_absolute() or ".." in Path(relative).parts:
+            raise ValueError(f"source path must be repository-relative: {raw_path}")
+        try:
+            blob_oid = _git_output(
+                root, "rev-parse", f"{resolved_commit}:{relative}"
+            )
+            object_type = _git_output(root, "cat-file", "-t", blob_oid)
+        except subprocess.CalledProcessError as exc:
+            raise FileNotFoundError(
+                f"tracked source is absent from commit {resolved_commit}: {relative}"
+            ) from exc
+        if object_type != "blob":
+            raise ValueError(
+                f"execution source is not a Git blob: {relative} ({object_type})"
+            )
+        blob = _git_bytes(root, "cat-file", "blob", blob_oid)
+        blob_sha256 = hashlib.sha256(blob).hexdigest()
+        entries[relative] = {
+            "git_blob_oid": blob_oid,
+            "blob_sha256": blob_sha256,
+        }
+        file_sha256[relative] = blob_sha256
+        blob_oids[relative] = blob_oid
+    return {
+        "source_state_sha256": canonical_sha256(entries),
+        "source_state_algorithm": dict(COMMIT_SOURCE_STATE_ALGORITHM),
+        "source_state_commit": resolved_commit,
+        "tracked_source_file_sha256": file_sha256,
+        "tracked_source_git_blob_oid": blob_oids,
+        "tracked_source_entries": entries,
+    }
+
+
+def worktree_source_state(
+    repo_root: str | Path = ".",
+    source_paths: Sequence[str] = DEFAULT_EXECUTION_SOURCE_PATHS,
+) -> dict:
+    """Return checkout-byte hashes for diagnostics; never use this for gating."""
     root = Path(_git_output(repo_root, "rev-parse", "--show-toplevel"))
     rows = {}
     for raw_path in sorted(set(source_paths)):
         relative = Path(raw_path).as_posix()
-        subprocess.check_call(
-            ["git", "ls-files", "--error-unmatch", "--", relative],
-            cwd=str(root),
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
         source = root / relative
         if not source.is_file():
-            raise FileNotFoundError(f"tracked source file is missing: {relative}")
+            raise FileNotFoundError(f"worktree source file is missing: {relative}")
         rows[relative] = sha256_file(source)
     return {
-        "source_state_sha256": canonical_sha256(rows),
-        "tracked_source_file_sha256": rows,
+        "worktree_source_state_sha256": canonical_sha256(rows),
+        "worktree_source_state_algorithm": dict(
+            WORKTREE_SOURCE_STATE_ALGORITHM
+        ),
+        "worktree_source_file_sha256": rows,
     }
 
 
@@ -150,7 +218,9 @@ def assert_execution_gate(
             f"{state['git_status_porcelain']}"
         )
     source = tracked_source_state(
-        state["repository_root"], source_paths=source_paths
+        state["repository_root"],
+        source_paths=source_paths,
+        commit=state["git_commit"],
     )
     if (
         expected_source_state_sha256
@@ -161,7 +231,10 @@ def assert_execution_gate(
             f"expected={expected_source_state_sha256} "
             f"actual={source['source_state_sha256']}"
         )
-    return {**state, **source}
+    diagnostic = worktree_source_state(
+        state["repository_root"], source_paths=source_paths
+    )
+    return {**state, **source, **diagnostic}
 
 
 def runtime_environment() -> dict:
@@ -241,8 +314,22 @@ def build_completion_receipt(
         "parent_commit": state.get("parent_commit"),
         "worktree_clean": state.get("worktree_clean"),
         "source_state_sha256": state.get("source_state_sha256"),
+        "source_state_algorithm": state.get("source_state_algorithm"),
+        "source_state_commit": state.get("source_state_commit"),
         "tracked_source_file_sha256": state.get(
             "tracked_source_file_sha256", {}
+        ),
+        "tracked_source_git_blob_oid": state.get(
+            "tracked_source_git_blob_oid", {}
+        ),
+        "worktree_source_state_sha256": state.get(
+            "worktree_source_state_sha256"
+        ),
+        "worktree_source_state_algorithm": state.get(
+            "worktree_source_state_algorithm"
+        ),
+        "worktree_source_file_sha256": state.get(
+            "worktree_source_file_sha256", {}
         ),
         "environment": runtime_environment(),
         "output_paths": [str(Path(path).resolve()) for path in output_paths],
@@ -322,6 +409,11 @@ def write_provenance_receipt(
         })
     worktree = git_worktree_state(repo_root)
     source_state = tracked_source_state(
+        worktree["repository_root"],
+        source_paths=source_paths,
+        commit=worktree["git_commit"],
+    )
+    worktree_diagnostic = worktree_source_state(
         worktree["repository_root"], source_paths=source_paths
     )
     payload = {
@@ -329,6 +421,7 @@ def write_provenance_receipt(
         "created_at_utc": datetime.now(timezone.utc).isoformat(),
         **worktree,
         **source_state,
+        **worktree_diagnostic,
         "config_id": config_id(config),
         "effective_config_sha256": canonical_sha256(config),
         "cache_key": dict(cache_key),

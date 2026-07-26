@@ -158,8 +158,19 @@ def run(args: argparse.Namespace) -> dict:
         "parent_commit": state["parent_commit"],
         "worktree_clean": state["worktree_clean"],
         "source_state_sha256": state["source_state_sha256"],
+        "source_state_algorithm": state["source_state_algorithm"],
+        "source_state_commit": state["source_state_commit"],
         "tracked_source_file_sha256": state[
             "tracked_source_file_sha256"
+        ],
+        "tracked_source_git_blob_oid": state[
+            "tracked_source_git_blob_oid"
+        ],
+        "worktree_source_state_sha256": state[
+            "worktree_source_state_sha256"
+        ],
+        "worktree_source_state_algorithm": state[
+            "worktree_source_state_algorithm"
         ],
         "validation_gate_path": str(gate_path.resolve()),
         "validation_gate_sha256": sha256_file(gate_path),

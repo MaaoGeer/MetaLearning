@@ -4,11 +4,9 @@ from __future__ import annotations
 
 import argparse
 import csv
-import hashlib
 import json
 import math
 import os
-import subprocess
 import sys
 import time
 from collections import OrderedDict
@@ -42,6 +40,11 @@ from src.meta_learning.functional import functional_forward  # noqa: E402
 from src.meta_optimizer.handcrafted import HandcraftedOptimizer  # noqa: E402
 from src.utils.config import Config  # noqa: E402
 from src.utils.device import resolve_device  # noqa: E402
+from src.utils.provenance import (  # noqa: E402
+    git_worktree_state,
+    tracked_source_state,
+    worktree_source_state,
+)
 from src.utils.seed import set_seed  # noqa: E402
 from src.visualization.plots import plot_adaptation_curves  # noqa: E402
 
@@ -304,33 +307,23 @@ def source_state_receipt(repo_root: Path) -> dict:
         "src/evaluation/task_manifest.py",
         "src/meta_optimizer/handcrafted.py",
     ]
-    file_hashes = {
-        path: sha256_file(repo_root / path)
-        for path in tracked_sources
-    }
-    digest = hashlib.sha256(
-        json.dumps(file_hashes, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    ).hexdigest()
-    commit = subprocess.run(
-        ["git", "rev-parse", "HEAD"],
-        cwd=repo_root,
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout.strip()
-    status = subprocess.run(
-        ["git", "status", "--porcelain"],
-        cwd=repo_root,
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout.splitlines()
+    state = git_worktree_state(repo_root)
+    commit_state = tracked_source_state(
+        repo_root, source_paths=tracked_sources, commit=state["git_commit"]
+    )
+    diagnostic = worktree_source_state(
+        repo_root, source_paths=tracked_sources
+    )
     return {
-        "git_commit": commit,
-        "dirty_worktree": bool(status),
-        "git_status_short": status,
-        "source_state_sha256": digest,
-        "source_file_sha256": file_hashes,
+        "git_commit": state["git_commit"],
+        "dirty_worktree": not state["worktree_clean"],
+        "git_status_short": state["git_status_porcelain"],
+        **commit_state,
+        **diagnostic,
+        # Compatibility alias retained for existing Adam receipt readers.
+        "source_file_sha256": commit_state[
+            "tracked_source_file_sha256"
+        ],
     }
 
 
