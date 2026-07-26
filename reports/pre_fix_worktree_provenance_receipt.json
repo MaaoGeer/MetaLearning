@@ -1,0 +1,87 @@
+{
+  "schema_version": 1,
+  "purpose": "Capture source provenance before Adam validation split remediation",
+  "capture": {
+    "utc": "2026-07-26T04:23:31.5916260Z",
+    "local": "2026-07-26T12:23:31.5961649+08:00",
+    "timezone": "Asia/Shanghai"
+  },
+  "historical_experiment_checkout_observed": {
+    "evidence_source": "User-provided Windows server terminal transcripts",
+    "locally_accessible": false,
+    "repository_path": "E:/MetaLearning",
+    "branch": "main",
+    "head": "489f67bdf92d3f70c9f5a444bf7f1f2a8abb41d8",
+    "git_status_short": [
+      " M src/data/task_sampler.py",
+      "?? scripts/run_metaopt_minimal_experiments.ps1"
+    ],
+    "git_diff_available": true,
+    "git_diff_binary_independently_available": false,
+    "dirty_files": [
+      {
+        "path": "src/data/task_sampler.py",
+        "status": "modified",
+        "sha256": "bc682064585420744fea065cdad593516ad2588a97164bd08e7cee825fc34d68"
+      },
+      {
+        "path": "scripts/run_metaopt_minimal_experiments.ps1",
+        "status": "untracked",
+        "sha256": "3d148b9c32805f894bab3a737a07be61d9665b813d94c638fe764dcc5c0bf24d",
+        "size_bytes": 25681,
+        "last_write_time_utc": "2026-07-23T09:16:56Z",
+        "complete_bytes_available": false
+      }
+    ],
+    "python_environment": {
+      "python": "D:/anaconda/envs/metalearning/python.exe",
+      "torch": "2.12.1+cu130",
+      "torch_cuda": "13.0",
+      "cuda_available": true,
+      "device": "NVIDIA GeForce RTX 4080",
+      "cudnn": 92000
+    }
+  },
+  "remediation_checkout_before_fix": {
+    "repository_path": "E:/Progect/MetaLearning",
+    "branch": "main",
+    "head": "ae0a21a77c3baa4c6265cce3f3f6cc6e8d286642",
+    "git_status_short": [],
+    "git_diff": "",
+    "git_diff_binary": "",
+    "dirty_files": [],
+    "python_environment": {
+      "python": "C:/Users/43431/AppData/Local/Programs/Python/Python312/python.exe",
+      "version": "3.12.2"
+    },
+    "source_file_sha256": {
+      "src/data/task_sampler.py": "cef6fb8bd0ad44b0b70109317c5fd0e4975dcd6dc45438c45ab45386ad11ccde",
+      "scripts/run_metaopt_minimal_experiments.ps1": "50a785f3a487984f1e8115b3a745034579937b0478d0eecab880d122dbb229d2",
+      "scripts/tune_adam_manifest.py": "8d9c142fde8103bfe8353978019cf977560d17d93686a612aad12b0687015ed6"
+    }
+  },
+  "existing_artifact_provenance_search": {
+    "searched_roots": [
+      "logs",
+      "outputs",
+      "reports"
+    ],
+    "historical_task_sampler_hash_found": false,
+    "historical_runner_hash_found": false,
+    "recorded_validation_git_commit": "489f67bdf92d3f70c9f5a444bf7f1f2a8abb41d8",
+    "dirty_patch_or_source_state_hash_recorded_by_validation": false
+  },
+  "recovery_patch": {
+    "path": "reports/pre_fix_worktree.patch",
+    "sha256": "722c2fd9fdaef36d0578309d7acbf378adda2ebae38dffd84fb2013b4ae52631",
+    "complete": false,
+    "limitation": "The tracked task_sampler.py diff is captured, but the byte-exact historical untracked runner was not available."
+  },
+  "historical_validation_source_state_verified": false,
+  "historical_validation_rerun_required": true,
+  "decision": "E0-E3 must be rerun from a clean, content-addressed commit before Adam extension validation or any frozen test can be authorized.",
+  "immutability": {
+    "old_validation_receipts_modified": false,
+    "old_outputs_modified": false
+  }
+}

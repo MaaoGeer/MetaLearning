@@ -27,6 +27,42 @@ def sha256_file(path: str | Path) -> str:
     return digest.hexdigest()
 
 
+def dataset_fingerprint(dataset: IntrusionDataset) -> str:
+    """Hash every field that determines the identity and ordering of windows."""
+    digest = hashlib.sha256()
+    digest.update(b"intrusion-dataset-fingerprint-v1")
+
+    def update_array(name: str, value: Any) -> None:
+        digest.update(name.encode("utf-8"))
+        if value is None:
+            digest.update(b"<none>")
+            return
+        if isinstance(value, torch.Tensor):
+            array = value.detach().cpu().contiguous().numpy()
+        else:
+            array = np.ascontiguousarray(np.asarray(value))
+        digest.update(str(array.dtype).encode("ascii"))
+        digest.update(json.dumps(list(array.shape)).encode("ascii"))
+        digest.update(array.tobytes())
+
+    digest.update(str(int(dataset.sequence_length)).encode("ascii"))
+    digest.update(str(int(dataset.feature_dim)).encode("ascii"))
+    for field in (
+        "features",
+        "labels",
+        "raw_start",
+        "raw_end",
+        "row_start",
+        "row_end",
+        "row_ids",
+        "order_start",
+        "order_end",
+        "segment_id",
+    ):
+        update_array(field, getattr(dataset, field))
+    return digest.hexdigest()
+
+
 def _tensor_sha256(tensor: torch.Tensor) -> str:
     data = tensor.detach().cpu().contiguous().numpy().tobytes()
     return hashlib.sha256(data).hexdigest()
@@ -139,6 +175,15 @@ def write_task_manifest(
     missing = required - set(protocol)
     if missing:
         raise ValueError(f"task manifest protocol missing fields: {sorted(missing)}")
+    manifest_metadata = dict(metadata or {})
+    if dataset is not None:
+        manifest_metadata.setdefault("dataset_fingerprint", dataset_fingerprint(dataset))
+        split = str(protocol["split"]).lower()
+        manifest_metadata.setdefault(
+            "dataset_role",
+            "adapt_val_dataset" if split in {"val", "validation"} else
+            "adapt_test_dataset" if split == "test" else "unknown",
+        )
     payload: Dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
         "created_at_utc": datetime.now(timezone.utc).isoformat(),
@@ -146,7 +191,7 @@ def write_task_manifest(
         "base_checkpoint_sha256": str(base_checkpoint_sha256),
         "base_initialization_sha256": str(base_initialization_sha256 or ""),
         "protocol": dict(protocol),
-        "metadata": dict(metadata or {}),
+        "metadata": manifest_metadata,
         "task_count": int(len(tasks)),
         "tasks": [
             _task_record(task, task_index, protocol, dataset=dataset)
@@ -160,8 +205,18 @@ def write_task_manifest(
         encoding="utf-8",
     )
     digest = sha256_file(destination)
+    sidecar_fields = [
+        digest,
+        destination.name,
+        f"split={protocol['split']}",
+        f"schema={SCHEMA_VERSION}",
+    ]
+    if dataset is not None:
+        sidecar_fields.append(
+            f"dataset_fingerprint={manifest_metadata['dataset_fingerprint']}"
+        )
     destination.with_suffix(destination.suffix + ".sha256").write_text(
-        f"{digest}  {destination.name}\n", encoding="utf-8"
+        "  ".join(sidecar_fields) + "\n", encoding="utf-8"
     )
     return digest
 

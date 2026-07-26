@@ -1,0 +1,111 @@
+Pre-fix historical worktree recovery record
+=============================================
+
+This file records the source changes observed in user-provided terminal output
+from the Windows experiment checkout at E:/MetaLearning. It is intentionally
+not applied to the remediation checkout automatically.
+
+Historical experiment checkout
+------------------------------
+Repository: E:/MetaLearning
+Branch: main
+HEAD: 489f67bdf92d3f70c9f5a444bf7f1f2a8abb41d8
+Status:
+ M src/data/task_sampler.py
+?? scripts/run_metaopt_minimal_experiments.ps1
+
+Observed SHA-256:
+src/data/task_sampler.py:
+bc682064585420744fea065cdad593516ad2588a97164bd08e7cee825fc34d68
+
+scripts/run_metaopt_minimal_experiments.ps1:
+3d148b9c32805f894bab3a737a07be61d9665b813d94c638fe764dcc5c0bf24d
+
+Observed tracked patch
+----------------------
+diff --git a/src/data/task_sampler.py b/src/data/task_sampler.py
+index c5c3298..259e9c1 100644
+--- a/src/data/task_sampler.py
++++ b/src/data/task_sampler.py
+@@ -53,29 +53,36 @@ def _pick_non_overlapping_windows(
+     rng: np.random.Generator,
+     disallow_overlap: bool,
+     disallow_internal_overlap: bool = True,
++    max_attempts: int = 32,
+ ) -> List[int]:
+-    """从 pool 中无放回选取 k 个窗口, 不与 forbidden 中窗口共享原始样本。"""
+-    shuffled = list(pool)
+-    rng.shuffle(shuffled)
+-    picked: List[int] = []
+-    for wid in shuffled:
+-        if len(picked) >= k:
+-            break
+-        if disallow_overlap:
++    """Pick a raw-disjoint subset using bounded randomized greedy retries."""
++    best: List[int] = []
++    for _ in range(max(1, int(max_attempts))):
++        shuffled = list(pool)
++        rng.shuffle(shuffled)
++        picked: List[int] = []
++        for wid in shuffled:
++            if len(picked) >= k:
++                break
+             conflict = False
+-            for f in forbidden:
+-                if _windows_overlap(dataset, wid, f):
+-                    conflict = True
+-                    break
+-            if conflict:
+-                continue
+-            if disallow_internal_overlap:
+-                for p in picked:
+-                    if _windows_overlap(dataset, wid, p):
++            if disallow_overlap:
++                for blocked_wid in forbidden:
++                    if _windows_overlap(dataset, wid, blocked_wid):
+                         conflict = True
+                         break
++                if conflict:
++                    continue
++                if disallow_internal_overlap:
++                    for picked_wid in picked:
++                        if _windows_overlap(dataset, wid, picked_wid):
++                            conflict = True
++                            break
+             if conflict:
+                 continue
+-        picked.append(wid)
+-    return picked
++            picked.append(wid)
++        if len(picked) > len(best):
++            best = picked
++        if len(best) >= k:
++            return best
++    return best
+@@ -171,12 +178,13 @@ class FewShotTaskSampler:
+             support_idx = _pick_non_overlapping_windows(
+                 pool, self.dataset, self.k_shot, forbidden,
+                 self.rng, self.disallow_overlap, self.disallow_internal_overlap,
+             )
++            forbidden.update(support_idx)
+             query_idx = _pick_non_overlapping_windows(
+                 pool, self.dataset, self.query_size, forbidden,
+                 self.rng, self.disallow_overlap, self.disallow_internal_overlap,
+             )
+-            forbidden.update(support_idx)
+             forbidden.update(query_idx)
+
+             if len(support_idx) < self.k_shot or len(query_idx) < self.query_size:
+
+Untracked runner recovery limitation
+------------------------------------
+The complete bytes of scripts/run_metaopt_minimal_experiments.ps1 from the
+historical experiment checkout are not available in the current remediation
+workspace or Git history. The user-provided transcript establishes its path,
+size (25681 bytes), timestamp (2026-07-23 09:16:56Z), parameter block, and
+SHA-256, but not the full content. Therefore this record is only a complete
+recovery patch for the tracked task_sampler.py change. It MUST NOT be presented
+as a byte-exact recovery of the historical dirty worktree.
+
+patch_complete=false
+historical_validation_source_state_verified=false

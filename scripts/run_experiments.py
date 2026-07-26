@@ -176,6 +176,7 @@ def _write_run_manifest(
         metadata={
             "dataset": str(cfg.data.name),
             "unknown_class": unknown_class,
+            "experiment_seed": int(cfg.experiment.get("seed", 42)),
             "strict_adapt_test": bool(
                 cfg.data.get("strict_adapt_test", False)
             ),

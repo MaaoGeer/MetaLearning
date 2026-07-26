@@ -48,9 +48,9 @@ class DataBundle:
     meta_val_sampler: FewShotTaskSampler
     loao: LOAOResult
     _adapt_class_to_idx: Dict[str, int]
-    _adapt_dataset: IntrusionDataset
+    _adapt_dataset: Optional[IntrusionDataset]
     _adapt_val_dataset: IntrusionDataset
-    _adapt_test_dataset: IntrusionDataset
+    _adapt_test_dataset: Optional[IntrusionDataset]
 
     @property
     def adapt_val_dataset(self) -> IntrusionDataset:
@@ -58,6 +58,11 @@ class DataBundle:
 
     @property
     def adapt_test_dataset(self) -> IntrusionDataset:
+        if self._adapt_test_dataset is None:
+            raise RuntimeError(
+                "adapt_test_dataset was intentionally not constructed for this "
+                "validation-only pipeline"
+            )
         return self._adapt_test_dataset
 
     def make_adaptation_sampler(
@@ -74,8 +79,12 @@ class DataBundle:
         if split == "val":
             dataset = self._adapt_val_dataset
         elif split == "test":
+            if self._adapt_test_dataset is None:
+                raise RuntimeError("test adaptation data is unavailable in validation-only mode")
             dataset = self._adapt_test_dataset
         elif split == "all":
+            if self._adapt_dataset is None:
+                raise RuntimeError("combined adaptation data is unavailable in validation-only mode")
             dataset = self._adapt_dataset
         else:
             raise ValueError(f"Unknown adaptation split={split!r}; expected val|test|all")
@@ -282,7 +291,17 @@ def _log_split_audit(
     )
 
 
-def build_pipeline(cfg: Config, seed: int = 42) -> DataBundle:
+def build_pipeline(
+    cfg: Config,
+    seed: int = 42,
+    *,
+    adaptation_dataset_role: str = "all",
+) -> DataBundle:
+    if adaptation_dataset_role not in {"all", "validation"}:
+        raise ValueError(
+            "adaptation_dataset_role must be 'all' or 'validation', got "
+            f"{adaptation_dataset_role!r}"
+        )
     dcfg = cfg.data
     window_size = int(dcfg.window_size)
     stride = int(dcfg.get("stride", max(1, window_size // 2)))
@@ -356,37 +375,46 @@ def build_pipeline(cfg: Config, seed: int = 42) -> DataBundle:
     adapt_val_ratio = float(dcfg.get("adapt_val_ratio", 0.5))
     eval_val_sp, eval_test_sp = _temporal_subsplit(loao.eval, adapt_val_ratio)
     unk_val_sp, unk_test_sp = _temporal_subsplit(loao.unknown, adapt_val_ratio)
-    if len(loao.test) < window_size:
-        if strict_adapt_test:
-            raise ValueError(
-                "strict_adapt_test=true requires an independent loao.test split "
-                f"with at least window_size={window_size} raw rows; got {len(loao.test)}. "
-                "Set data.test_ratio > 0 or disable strict_adapt_test only for ablations."
-            )
-        logger.warning(
-            "loao.test has %d raw rows < window_size=%d; falling back to eval split "
-            "for adapt_test because strict_adapt_test=false.",
-            len(loao.test),
-            window_size,
-        )
-        eval_test_source = eval_test_sp
-    else:
-        eval_test_source = loao.test
 
     adapt_val_ds = _build_adapt_dataset(
         eval_val_sp, unk_val_sp, adapt_c2i, window_size, stride, cfg)
-    adapt_test_ds = _build_adapt_dataset(
-        eval_test_source, unk_test_sp, adapt_c2i, window_size, stride, cfg)
-    adapt_full_ds = _build_adapt_dataset(
-        loao.eval, loao.unknown, adapt_c2i, window_size, stride, cfg)
-    if adapt_val_ds is None or adapt_test_ds is None:
+    adapt_test_ds: Optional[IntrusionDataset] = None
+    adapt_full_ds: Optional[IntrusionDataset] = None
+    eval_test_source: Optional[SplitArrays] = None
+    if adaptation_dataset_role == "all":
+        if len(loao.test) < window_size:
+            if strict_adapt_test:
+                raise ValueError(
+                    "strict_adapt_test=true requires an independent loao.test split "
+                    f"with at least window_size={window_size} raw rows; got {len(loao.test)}. "
+                    "Set data.test_ratio > 0 or disable strict_adapt_test only for ablations."
+                )
+            logger.warning(
+                "loao.test has %d raw rows < window_size=%d; falling back to eval split "
+                "for adapt_test because strict_adapt_test=false.",
+                len(loao.test),
+                window_size,
+            )
+            eval_test_source = eval_test_sp
+        else:
+            eval_test_source = loao.test
+        adapt_test_ds = _build_adapt_dataset(
+            eval_test_source, unk_test_sp, adapt_c2i, window_size, stride, cfg)
+        adapt_full_ds = _build_adapt_dataset(
+            loao.eval, loao.unknown, adapt_c2i, window_size, stride, cfg)
+    if adapt_val_ds is None or (
+        adaptation_dataset_role == "all" and adapt_test_ds is None
+    ):
         raise ValueError(
             "Not enough adaptation data to build disjoint val/test windows. "
             "Reduce window_size/stride/k_shot/q_query or increase max_per_class."
         )
     unknown_idx = adapt_c2i[loao.unknown_class]
     val_unknown_windows = len(adapt_val_ds.class_to_indices.get(unknown_idx, []))
-    test_unknown_windows = len(adapt_test_ds.class_to_indices.get(unknown_idx, []))
+    test_unknown_windows = (
+        len(adapt_test_ds.class_to_indices.get(unknown_idx, []))
+        if adapt_test_ds is not None else 0
+    )
     logger.info(
         "Unknown window audit: class=%s idx=%d val_windows=%d test_windows=%d "
         "required_K_plus_Q=%d",
@@ -402,18 +430,20 @@ def build_pipeline(cfg: Config, seed: int = 42) -> DataBundle:
     _log_split_audit("meta_val", loao.eval, meta_val_ds)
     _log_split_audit("adapt_val_known", eval_val_sp, None)
     _log_split_audit("adapt_val_unknown", unk_val_sp, None)
-    _log_split_audit("adapt_test_known", eval_test_source, None)
-    _log_split_audit("adapt_test_unknown", unk_test_sp, None)
+    if eval_test_source is not None:
+        _log_split_audit("adapt_test_known", eval_test_source, None)
+        _log_split_audit("adapt_test_unknown", unk_test_sp, None)
     _log_split_audit("adapt_val", SplitArrays(
         features=np.zeros((0, feature_dim), dtype=np.float32),
         labels=np.array([], dtype=object),
         order=np.array([], dtype=float),
     ), adapt_val_ds)
-    _log_split_audit("adapt_test", SplitArrays(
-        features=np.zeros((0, feature_dim), dtype=np.float32),
-        labels=np.array([], dtype=object),
-        order=np.array([], dtype=float),
-    ), adapt_test_ds)
+    if adapt_test_ds is not None:
+        _log_split_audit("adapt_test", SplitArrays(
+            features=np.zeros((0, feature_dim), dtype=np.float32),
+            labels=np.array([], dtype=object),
+            order=np.array([], dtype=float),
+        ), adapt_test_ds)
     logger.info(
         "DataBundle: F=%d L=%d stride=%d mode=%s label=%s | meta_train=%d "
         "meta_val=%d adapt_val=%d adapt_test=%d windows",
@@ -425,7 +455,7 @@ def build_pipeline(cfg: Config, seed: int = 42) -> DataBundle:
         len(meta_train_ds),
         len(meta_val_ds),
         len(adapt_val_ds),
-        len(adapt_test_ds),
+        len(adapt_test_ds) if adapt_test_ds is not None else 0,
     )
 
     return DataBundle(
@@ -442,7 +472,10 @@ def build_pipeline(cfg: Config, seed: int = 42) -> DataBundle:
         meta_val_sampler=meta_val_sampler,
         loao=loao,
         _adapt_class_to_idx=adapt_c2i,
-        _adapt_dataset=adapt_full_ds if adapt_full_ds is not None else adapt_test_ds,
+        _adapt_dataset=(
+            (adapt_full_ds if adapt_full_ds is not None else adapt_test_ds)
+            if adaptation_dataset_role == "all" else None
+        ),
         _adapt_val_dataset=adapt_val_ds,
         _adapt_test_dataset=adapt_test_ds,
     )
