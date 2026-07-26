@@ -1,0 +1,129 @@
+{
+  "schema_version": 1,
+  "created_at_utc": "2026-07-26T04:41:00Z",
+  "purpose": "Reconcile historical E0-E3 validation provenance with the validation-only Adam remediation",
+  "historical_validation": {
+    "repository_path": "E:/MetaLearning",
+    "recorded_git_commit": "489f67bdf92d3f70c9f5a444bf7f1f2a8abb41d8",
+    "recorded_git_commit_found_in_artifact_provenance": true,
+    "recorded_worktree_dirty": true,
+    "dirty_paths_observed": [
+      "src/data/task_sampler.py",
+      "scripts/run_metaopt_minimal_experiments.ps1"
+    ],
+    "original_dirty_tree_patch_sha256": null,
+    "original_dirty_tree_patch_hash_available": false,
+    "recovery_record_patch": {
+      "path": "reports/pre_fix_worktree.patch",
+      "sha256": "722c2fd9fdaef36d0578309d7acbf378adda2ebae38dffd84fb2013b4ae52631",
+      "complete": false,
+      "reason": "The historical tracked task_sampler diff was captured, but the byte-exact untracked runner was unavailable."
+    },
+    "source_file_sha256_observed_before_fix": {
+      "src/data/task_sampler.py": "bc682064585420744fea065cdad593516ad2588a97164bd08e7cee825fc34d68",
+      "scripts/run_metaopt_minimal_experiments.ps1": "3d148b9c32805f894bab3a737a07be61d9665b813d94c638fe764dcc5c0bf24d"
+    },
+    "source_hashes_recorded_in_original_validation_receipts": false,
+    "runner_use_evidence": {
+      "used_for_e0_e3": true,
+      "basis": "User-provided Prepare-stage stdout invoked scripts/run_metaopt_minimal_experiments.ps1 and produced the E0-E3 directory layout and scorecards.",
+      "byte_exact_runner_state_verified": false
+    },
+    "historical_validation_source_state_verified": false
+  },
+  "remediation_checkout": {
+    "repository_path": "E:/Progect/MetaLearning",
+    "parent_commit_before_remediation": "ae0a21a77c3baa4c6265cce3f3f6cc6e8d286642",
+    "new_clean_source_commit": "c0d85066ba60225ff9374b298338a7268353eaad",
+    "source_file_sha256_before_remediation": {
+      "scripts/tune_adam_manifest.py": "8d9c142fde8103bfe8353978019cf977560d17d93686a612aad12b0687015ed6",
+      "src/data/task_sampler.py": "cef6fb8bd0ad44b0b70109317c5fd0e4975dcd6dc45438c45ab45386ad11ccde",
+      "scripts/run_metaopt_minimal_experiments.ps1": "50a785f3a487984f1e8115b3a745034579937b0478d0eecab880d122dbb229d2"
+    },
+    "source_file_sha256_after_remediation_windows_worktree": {
+      "scripts/tune_adam_manifest.py": "2eb9d3948ad0985eb3a620c7897c9dd2181495f14217a73586dfdf9b7e00d3e9",
+      "src/data/pipeline.py": "07063b4c833b618623a314093f7a223642a232e93ba191165df775f1a29b6ee0",
+      "src/evaluation/task_manifest.py": "5e6ab380e73876e0e249c2203a1d128494c016a16c4a50e9cc99d2c5e52e94fc",
+      "scripts/run_experiments.py": "732b86094887d35ebb42c8259175bb61dcf88ef658a2c8bb35ff215af93d7e1f",
+      "src/evaluation/__init__.py": "05266aed211192e0904312cf928f45e6f29b87b9c63ebf0fab457f5c30870aae",
+      "tests/test_adam_validation_split_safety.py": "25250602a56e44891d876ab2daa8fb8deba5503167cb6267ea247f6e490611ab",
+      "src/data/task_sampler.py": "cef6fb8bd0ad44b0b70109317c5fd0e4975dcd6dc45438c45ab45386ad11ccde",
+      "scripts/run_metaopt_minimal_experiments.ps1": "50a785f3a487984f1e8115b3a745034579937b0478d0eecab880d122dbb229d2"
+    },
+    "task_sampler_change_assessment": {
+      "necessary": true,
+      "reason": "The bounded randomized retries and global forbidden set prevent raw-window overlap across class-specific support/query selection.",
+      "already_tracked_commit": "1d1fbfb5f5d974732228e9fea4fe36658e39013f"
+    },
+    "runner_assessment": {
+      "tracked": true,
+      "tracked_commit": "1d1fbfb5f5d974732228e9fea4fe36658e39013f",
+      "contains_credentials": false,
+      "contains_machine_private_paths": false
+    }
+  },
+  "adam_split_remediation": {
+    "validation_only_cli": true,
+    "accepted_requested_split": "validation",
+    "effective_dataset": "adapt_val_dataset",
+    "test_manifest_rejected": true,
+    "missing_or_unknown_split_rejected": true,
+    "manifest_sidecar_split_mismatch_rejected": true,
+    "dataset_fingerprint_required": true,
+    "window_provenance_validated": true,
+    "theta0_hash_validated": true,
+    "test_dataset_accessed": false,
+    "metaopt_ran": false
+  },
+  "cpu_verification": {
+    "targeted_new_tests": {
+      "command": "python -m pytest -q tests/test_adam_validation_split_safety.py",
+      "result": "11 passed"
+    },
+    "targeted_existing_tests": {
+      "command": "python -m pytest -q tests/test_protocol_fix.py tests/test_metaopt_remediation.py",
+      "result": "10 passed"
+    },
+    "full_pytest": {
+      "command": "python -m pytest -q",
+      "result": "68 passed, 1 warning",
+      "warning": "Expected scipy precision-loss warning in a significance test with nearly identical synthetic values."
+    },
+    "compileall": "PASS",
+    "git_diff_check": "PASS",
+    "gpu_used": false,
+    "adam_validation_run": false,
+    "test_evaluation_run": false
+  },
+  "content_reconciliation": {
+    "original_validation_content_matches_new_clean_commit": false,
+    "original_validation_can_be_bound_to_new_commit": false,
+    "reason": "The historical dirty runner and task sampler hashes do not match any available clean commit, and original validation receipts contain only the base commit without dirty source hashes.",
+    "old_validation_receipts_modified": false,
+    "old_outputs_modified": false,
+    "e0_e3_rerun_required": true,
+    "required_rerun_basis": "Run E0-E3 from the new clean source commit with source-state, manifest, artifact, and environment hashes captured before any Adam extension or frozen test."
+  },
+  "stage0_rerun": {
+    "source_commit": "c0d85066ba60225ff9374b298338a7268353eaad",
+    "e0_e2_artifacts_cpu_load": "8/8 PASS",
+    "validation_test_manifests_read": "8/8 PASS",
+    "artifact_provenance_hashes_checked": 144,
+    "artifact_provenance_hash_failures": 0,
+    "legacy_test_manifest_rejected_by_hardened_adam_entry": true,
+    "new_validation_test_split_safety_tests": "11/11 PASS",
+    "adam_extension_output_exists": false,
+    "frozen_test_output_exists": false,
+    "test_completion_receipt_exists": false,
+    "original_artifacts_modified": false,
+    "gpu_used": false
+  },
+  "decision": {
+    "historical_e0_e3_usable_as_exploratory_evidence": true,
+    "historical_e0_e3_usable_as_frozen_test_gate": false,
+    "reproducibility_readiness": "FAIL",
+    "adam_validation_split_safety": "PASS",
+    "adam_extension_validation_authorized": false,
+    "frozen_test_authorized": false
+  }
+}
