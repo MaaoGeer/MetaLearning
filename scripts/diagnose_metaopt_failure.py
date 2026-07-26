@@ -318,7 +318,9 @@ def main() -> None:
     seed = int(cfg.experiment.get("seed", 42))
     set_seed(seed, bool(cfg.experiment.get("deterministic", True)))
     device = resolve_device(str(cfg.device.get("prefer", "auto")))
-    bundle = build_pipeline(cfg, seed=seed)
+    bundle = build_pipeline(
+        cfg, seed=seed, adaptation_dataset_role="all"
+    )
     model = build_meta_model(cfg, art["extra"]["feature_dim"], art["extra"]["window_size"]).to(device)
     model.load_state_dict(art["meta_init_state"])
     init_params = {name: param for name, param in model.named_parameters()}

@@ -15,6 +15,9 @@ import argparse
 import copy
 import json
 import os
+import sys
+import time
+from datetime import datetime, timezone
 
 from src.build import (
     build_meta_model,
@@ -31,7 +34,13 @@ from src.utils.config import load_config
 from src.utils.device import resolve_device
 from src.utils.logger import get_logger
 from src.utils.seed import set_seed
-from src.utils.provenance import raw_data_catalog, write_provenance_receipt
+from src.utils.provenance import (
+    assert_execution_gate,
+    raw_data_catalog,
+    sha256_file,
+    write_completion_receipt,
+    write_provenance_receipt,
+)
 from src.visualization.plots import plot_training_curves
 
 logger = get_logger("train_meta")
@@ -43,11 +52,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dataset", default="configs/datasets/cicids2017.yaml")
     parser.add_argument("--override", nargs="*", default=[])
     parser.add_argument("--out", default="checkpoints/meta_artifacts.pt")
+    parser.add_argument("--expected-commit", required=True)
+    parser.add_argument("--expected-source-state")
     return parser.parse_args()
 
 
-def main() -> None:
-    args = parse_args()
+def run(args: argparse.Namespace) -> dict:
+    started_at = datetime.now(timezone.utc)
+    started_clock = time.perf_counter()
+    gate = assert_execution_gate(
+        args.expected_commit,
+        expected_source_state_sha256=args.expected_source_state,
+    )
 
     cfg = load_config(args.config)
     if args.dataset:
@@ -78,7 +94,13 @@ def main() -> None:
     device = resolve_device(str(cfg.device.get("prefer", "auto")))
     logger.info("Device: %s | seed=%d | arch=%s", device, seed, cfg.model.arch)
 
-    bundle = build_pipeline(cfg, seed=seed)
+    # Meta-training consumes only meta_train/meta_val components. Adaptation
+    # validation/test windows must not be constructed in this process.
+    bundle = build_pipeline(
+        cfg, seed=seed, adaptation_dataset_role="none"
+    )
+    if bundle.meta_train_sampler is None or bundle.meta_val_sampler is None:
+        raise RuntimeError("meta-training pipeline did not construct meta samplers")
     meta_model = build_meta_model(cfg, bundle.feature_dim, bundle.window_size)
     adapt_names = resolve_adapt_names(meta_model, cfg)
     meta_opt = build_meta_optimizer(cfg)
@@ -155,9 +177,116 @@ def main() -> None:
             ),
         },
         task_manifests=[validation_path],
+        dataset_role="none",
+        dataset_fingerprint=None,
+        split_access={
+            "adaptation_validation_dataset_constructed": False,
+            "adaptation_validation_dataset_accessed": False,
+            "adaptation_test_dataset_constructed": False,
+            "adaptation_test_dataset_accessed": False,
+        },
+        execution={
+            "metaopt_training_ran": True,
+            "started_at_utc": started_at.isoformat(),
+        },
     )
 
     logger.info("Meta-training finished. Artifact: %s", args.out)
+    finished_at = datetime.now(timezone.utc)
+    completion_path = os.path.join(
+        artifact_dir, "training_completion_receipt.json"
+    )
+    return write_completion_receipt(
+        completion_path,
+        stage="metaopt_training",
+        status="success",
+        started_at_utc=started_at.isoformat(),
+        finished_at_utc=finished_at.isoformat(),
+        duration_seconds=time.perf_counter() - started_clock,
+        exit_code=0,
+        output_paths=[artifact_dir],
+        required_artifacts=[
+            args.out,
+            os.path.join(checkpoint_dir, "best.pt"),
+            os.path.join(checkpoint_dir, "last.pt"),
+            os.path.join(artifact_dir, "effective_config.json"),
+            os.path.join(artifact_dir, "provenance.json"),
+        ],
+        execution_state=gate,
+        details={
+            "effective_config_sha256": sha256_file(
+                os.path.join(artifact_dir, "effective_config.json")
+            ),
+            "dataset_role": "none",
+            "dataset_fingerprint": None,
+            "validation_dataset_constructed": False,
+            "validation_dataset_accessed": False,
+            "test_dataset_constructed": False,
+            "test_dataset_accessed": False,
+            "metaopt_training_ran": True,
+            "artifact_path": str(os.path.abspath(args.out)),
+            "theta0_sha256": tensor_state_sha256(meta_init_state),
+            "checkpoint_paths": {
+                "best": os.path.join(checkpoint_dir, "best.pt"),
+                "last": os.path.join(checkpoint_dir, "last.pt"),
+            },
+            "checkpoint_sha256": {
+                "best": sha256_file(os.path.join(checkpoint_dir, "best.pt")),
+                "last": sha256_file(os.path.join(checkpoint_dir, "last.pt")),
+            },
+            "artifact_sha256": sha256_file(args.out),
+            "command_line": list(sys.argv),
+        },
+    )
+
+
+def main() -> None:
+    args = parse_args()
+    started_at = datetime.now(timezone.utc)
+    started_clock = time.perf_counter()
+    artifact_dir = os.path.dirname(args.out) or "."
+    try:
+        run(args)
+    except KeyboardInterrupt:
+        write_completion_receipt(
+            os.path.join(
+                artifact_dir, "training_interrupted_receipt.json"
+            ),
+            stage="metaopt_training",
+            status="interrupted",
+            started_at_utc=started_at.isoformat(),
+            finished_at_utc=datetime.now(timezone.utc).isoformat(),
+            duration_seconds=time.perf_counter() - started_clock,
+            exit_code=130,
+            output_paths=[artifact_dir],
+            details={
+                "dataset_role": "none",
+                "test_dataset_constructed": False,
+                "test_dataset_accessed": False,
+                "metaopt_training_ran": True,
+                "command_line": list(sys.argv),
+            },
+        )
+        raise
+    except Exception:
+        write_completion_receipt(
+            os.path.join(artifact_dir, "training_failed_receipt.json"),
+            stage="metaopt_training",
+            status="failed",
+            started_at_utc=started_at.isoformat(),
+            finished_at_utc=datetime.now(timezone.utc).isoformat(),
+            duration_seconds=time.perf_counter() - started_clock,
+            exit_code=1,
+            output_paths=[artifact_dir],
+            details={
+                "dataset_role": "none",
+                "test_dataset_constructed": False,
+                "test_dataset_accessed": False,
+                "metaopt_training_ran": True,
+                "command_line": list(sys.argv),
+            },
+        )
+        raise
 
 
 if __name__ == "__main__":

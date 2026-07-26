@@ -99,7 +99,9 @@ def evaluate(model: nn.Module, params: Mapping[str, torch.Tensor], task: Any, lo
 def fresh_manifest(out: Path, artifact_path: Path, artifact: Mapping[str, Any], cfg: Config,
                    seed: int, task_seed: int, n_tasks: int, shot: int, q_query: int) -> tuple[dict, Any, dict]:
     """Generate an independently seeded validation-only manifest."""
-    bundle = build_pipeline(cfg, seed=seed)
+    bundle = build_pipeline(
+        cfg, seed=seed, adaptation_dataset_role="validation"
+    )
     sampler = bundle.make_adaptation_sampler(
         k_shot=shot, q_query=q_query, mode=str(cfg.data.get("task_mode", "binary")),
         n_way=int(artifact["extra"]["n_way"]), seed=task_seed,

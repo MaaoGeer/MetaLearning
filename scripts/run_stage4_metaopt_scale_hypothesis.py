@@ -106,7 +106,9 @@ def task_raw_rows(task: Any, dataset: Any) -> set[int]:
 def fresh_disjoint_manifest(out: Path, artifact_path: Path, artifact: Mapping[str, Any], cfg: Config,
                             seed: int, task_seed: int, n_tasks: int, shot: int, q_query: int,
                             forbidden: set[int]) -> tuple[dict, Any, dict]:
-    bundle = build_pipeline(cfg, seed=seed); dataset = bundle.adapt_val_dataset
+    bundle = build_pipeline(
+        cfg, seed=seed, adaptation_dataset_role="validation"
+    ); dataset = bundle.adapt_val_dataset
     sampler = bundle.make_adaptation_sampler(
         k_shot=shot, q_query=q_query, mode=str(cfg.data.get("task_mode", "binary")), n_way=int(artifact["extra"]["n_way"]),
         seed=task_seed, disallow_support_query_overlap=bool(cfg.data.get("disallow_support_query_overlap", True)),

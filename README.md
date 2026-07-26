@@ -43,7 +43,7 @@ tests/
 ## Train Meta Optimizer
 
 ```bash
-python train_meta.py --config configs/base.yaml --dataset configs/datasets/cicids2017.yaml
+python train_meta.py --config configs/base.yaml --dataset configs/datasets/cicids2017.yaml --expected-commit <full-clean-commit>
 ```
 
 Artifact:
@@ -61,7 +61,7 @@ It contains:
 ## Compare Optimizers
 
 ```bash
-python scripts/run_experiments.py --artifacts checkpoints/meta_artifacts.pt --out outputs/experiments
+python scripts/run_experiments.py --artifacts checkpoints/meta_artifacts.pt --out outputs/experiments --phase validation --expected-commit <full-clean-commit>
 ```
 
 The comparison uses:
@@ -75,8 +75,8 @@ The comparison uses:
 ## Matrix Experiments
 
 ```bash
-python scripts/run_fast_adaptation_matrix.py --quick --dry-run
-python scripts/run_fast_adaptation_matrix.py --unknowns all --shots 1,5,10,20 --seeds 0,1,2,3,4
+python scripts/run_fast_adaptation_matrix.py --quick --dry-run --expected-commit <full-clean-commit>
+python scripts/run_fast_adaptation_matrix.py --unknowns all --shots 1,5,10,20 --seeds 0,1,2,3,4 --expected-commit <full-clean-commit>
 ```
 
 Use the matrix runner for thesis-grade multi-unknown, multi-shot, multi-seed

@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "created_at_local": "2026-07-26T15:09:33.4255300+08:00",
+  "created_at_utc": "2026-07-26T07:09:33.4309304+00:00",
+  "repository_root": "E:/Progect/MetaLearning",
+  "current_working_directory": "E:/Progect/MetaLearning",
+  "server_deployment_checkout": "E:/MetaLearning",
+  "server_deployment_checkout_accessible_from_current_runtime": false,
+  "head": "27f4fcb1494c9dd1237767b1b17a5bc61e20ac0a",
+  "new_commit_required_parent": "27f4fcb1494c9dd1237767b1b17a5bc61e20ac0a",
+  "head_parent": "c0d85066ba60225ff9374b298338a7268353eaad",
+  "branch": "main",
+  "git_status_short": [],
+  "worktree_clean": true,
+  "index_clean": true,
+  "remote": {
+    "name": "origin",
+    "fetch": "https://github.com/MaaoGeer/MetaLearning.git",
+    "push": "https://github.com/MaaoGeer/MetaLearning.git"
+  },
+  "tracked_entrypoints_confirmed": [
+    "train_meta.py",
+    "scripts/generate_eval_task_manifest.py",
+    "scripts/run_experiments.py",
+    "scripts/run_metaopt_minimal_experiments.ps1",
+    "src/data/pipeline.py",
+    "src/utils/provenance.py"
+  ],
+  "authorization_scope": "Execution protocol, split routing, runner, provenance, receipts, CPU tests, and documentation only",
+  "gpu_experiment_started": false,
+  "validation_started": false,
+  "test_started": false
+}

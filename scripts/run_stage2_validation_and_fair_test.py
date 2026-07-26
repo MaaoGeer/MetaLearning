@@ -103,7 +103,13 @@ def _task_manifest(
     q_query: int,
 ) -> tuple[Path, dict, Any]:
     """Create one audit-complete manifest and return its source dataset."""
-    bundle = build_pipeline(cfg, seed=seed)
+    bundle = build_pipeline(
+        cfg,
+        seed=seed,
+        adaptation_dataset_role=(
+            "validation" if split == "val" else "test"
+        ),
+    )
     dataset = bundle.adapt_val_dataset if split == "val" else bundle.adapt_test_dataset
     sampler = bundle.make_adaptation_sampler(
         k_shot=shot,

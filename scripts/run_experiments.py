@@ -17,6 +17,8 @@ import csv
 import json
 import os
 import sys
+import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Tuple
 
@@ -35,6 +37,7 @@ from src.evaluation.adaptation_speed import (  # noqa: E402
 from src.evaluation.metrics import aggregate_logits, compute_metrics  # noqa: E402
 from src.evaluation.task_manifest import (  # noqa: E402
     assert_manifest_split_isolation,
+    dataset_fingerprint,
     load_tasks_from_manifest,
     manifest_reuse_statistics,
     read_task_manifest,
@@ -49,7 +52,12 @@ from src.trainer.adapter import AdaptOutcome, FewShotAdapter  # noqa: E402
 from src.utils.config import Config  # noqa: E402
 from src.utils.device import resolve_device  # noqa: E402
 from src.utils.logger import get_logger  # noqa: E402
-from src.utils.provenance import raw_data_catalog, write_provenance_receipt  # noqa: E402
+from src.utils.provenance import (  # noqa: E402
+    assert_execution_gate,
+    raw_data_catalog,
+    write_completion_receipt,
+    write_provenance_receipt,
+)
 from src.utils.seed import set_seed  # noqa: E402
 from src.visualization.plots import (  # noqa: E402
     plot_adaptation_curves,
@@ -83,7 +91,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--phase",
         choices=["validation", "test", "both"],
-        default="both",
+        default="validation",
         help=(
             "Run validation-only selection, one-time test from a frozen selection "
             "receipt, or the deprecated compatibility path that runs both."
@@ -94,6 +102,8 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="validation_selection.json produced by --phase validation; required for --phase test.",
     )
+    p.add_argument("--expected-commit", required=True)
+    p.add_argument("--expected-source-state")
     return p.parse_args()
 
 
@@ -550,31 +560,36 @@ def _dataset_audit(bundle) -> dict:
             for cls, indices in ds.class_to_indices.items()
         }
 
-    def raw_counts(split):
-        labels, counts = np.unique(split.labels, return_counts=True)
-        return {str(label): int(count) for label, count in zip(labels, counts)}
-
     unknown_idx = bundle._adapt_class_to_idx[bundle.unknown_class]
+    adapt_val = bundle._adapt_val_dataset
+    adapt_test = bundle._adapt_test_dataset
+    window_class_counts = {}
+    unknown_windows = {}
+    if adapt_val is not None:
+        window_class_counts["adapt_val"] = window_counts(adapt_val)
+        unknown_windows["adapt_val"] = int(
+            len(adapt_val.class_to_indices.get(unknown_idx, []))
+        )
+    if adapt_test is not None:
+        window_class_counts["adapt_test"] = window_counts(adapt_test)
+        unknown_windows["adapt_test"] = int(
+            len(adapt_test.class_to_indices.get(unknown_idx, []))
+        )
     return {
+        "adaptation_dataset_role": bundle.adaptation_dataset_role,
+        "validation_dataset_constructed": (
+            bundle.adaptation_validation_constructed
+        ),
+        "test_dataset_constructed": bundle.adaptation_test_constructed,
         "known_classes": list(bundle.known_classes),
         "unknown_class": bundle.unknown_class,
         "unknown_idx": int(unknown_idx),
-        "raw_class_counts": {
-            "meta_train": raw_counts(bundle.loao.train),
-            "meta_val": raw_counts(bundle.loao.eval),
-            "test": raw_counts(bundle.loao.test),
-            "unknown": raw_counts(bundle.loao.unknown),
-        },
-        "window_class_counts": {
-            "meta_train": window_counts(bundle.meta_train_dataset),
-            "meta_val": window_counts(bundle.meta_val_dataset),
-            "adapt_val": window_counts(bundle.adapt_val_dataset),
-            "adapt_test": window_counts(bundle.adapt_test_dataset),
-        },
-        "unknown_windows": {
-            "adapt_val": int(len(bundle.adapt_val_dataset.class_to_indices.get(unknown_idx, []))),
-            "adapt_test": int(len(bundle.adapt_test_dataset.class_to_indices.get(unknown_idx, []))),
-        },
+        # Phase-specific evaluation must not inspect the inactive raw split.
+        # Raw split counts are already captured by the pipeline/provenance logs;
+        # this receipt reports only the dataset role actually constructed here.
+        "raw_class_counts": {},
+        "window_class_counts": window_class_counts,
+        "unknown_windows": unknown_windows,
     }
 
 
@@ -596,18 +611,57 @@ def _convergence95(summary: Dict[str, object]) -> int:
     return int(sorted(values)[-1][0])
 
 
-def main() -> None:
-    args = parse_args()
+def validate_phase_arguments(args: argparse.Namespace) -> str:
+    """Validate phase routing before any pipeline or manifest is touched."""
+    if args.task_manifest and args.test_task_manifest:
+        raise ValueError(
+            "--task-manifest and --test-task-manifest are mutually exclusive"
+        )
+    legacy_test_manifest = args.task_manifest or args.test_task_manifest
+    if args.phase == "validation":
+        if legacy_test_manifest:
+            raise ValueError(
+                "--phase validation rejects every test manifest argument"
+            )
+        if args.selection_receipt:
+            raise ValueError(
+                "--phase validation rejects --selection-receipt"
+            )
+        return "validation"
+    if args.phase == "test":
+        if args.validation_task_manifest:
+            raise ValueError(
+                "--phase test rejects --validation-task-manifest"
+            )
+        if not legacy_test_manifest:
+            raise ValueError(
+                "--phase test requires an explicit --test-task-manifest"
+            )
+        if not args.selection_receipt:
+            raise ValueError("--phase test requires --selection-receipt")
+        return "test"
+    if args.phase == "both":
+        if args.selection_receipt:
+            raise ValueError(
+                "--phase both does not accept a frozen selection receipt"
+            )
+        return "all"
+    raise ValueError(f"unsupported phase={args.phase!r}")
+
+
+def run(args: argparse.Namespace) -> dict:
+    started_at = datetime.now(timezone.utc)
+    started_clock = time.perf_counter()
+    role = validate_phase_arguments(args)
+    gate = assert_execution_gate(
+        args.expected_commit,
+        expected_source_state_sha256=args.expected_source_state,
+    )
     art = load_artifacts(args.artifacts)
-    if args.phase == "test" and not args.selection_receipt:
-        raise ValueError("--phase test requires --selection-receipt")
-    if args.phase != "test" and args.selection_receipt:
-        raise ValueError("--selection-receipt is only valid with --phase test")
     if args.phase == "both":
         logger.warning(
-            "--phase both is retained for backward compatibility. For unbiased "
-            "experiments, use --phase validation and then run --phase test once "
-            "with the frozen validation_selection.json receipt."
+            "DEPRECATED: --phase both is compatibility-only and is forbidden "
+            "in the paper runner."
         )
     selection_input = None
     if args.selection_receipt:
@@ -650,7 +704,9 @@ def main() -> None:
     with open(os.path.join(args.out, "effective_config.json"), "w", encoding="utf-8") as handle:
         json.dump(cfg.to_dict(), handle, indent=2, ensure_ascii=False)
 
-    bundle = build_pipeline(cfg, seed=seed)
+    bundle = build_pipeline(
+        cfg, seed=seed, adaptation_dataset_role=role
+    )
     dataset_audit = _dataset_audit(bundle)
     with open(os.path.join(args.out, "dataset_audit.json"), "w", encoding="utf-8") as handle:
         json.dump(dataset_audit, handle, indent=2, ensure_ascii=False)
@@ -691,16 +747,15 @@ def main() -> None:
     disallow_ov = bool(cfg.data.get("disallow_support_query_overlap", True))
     disallow_internal = bool(cfg.data.get("disallow_internal_overlap", True))
 
-    if args.task_manifest and args.test_task_manifest:
-        raise ValueError(
-            "--task-manifest is the deprecated alias for --test-task-manifest; "
-            "provide only one"
-        )
     external_test_manifest = args.test_task_manifest or args.task_manifest
     external_val_manifest = args.validation_task_manifest
-    if (external_test_manifest or external_val_manifest) and len(shots) != 1:
+    active_manifest = (
+        external_val_manifest
+        if args.phase == "validation" else external_test_manifest
+    )
+    if active_manifest and len(shots) != 1:
         raise ValueError(
-            "explicit validation/test manifests require exactly one compare.shots value"
+            "explicit phase manifest requires exactly one compare.shots value"
         )
     if not bool(cfg.data.get("strict_adapt_test", False)):
         raise ValueError("manifest-based evaluation requires strict_adapt_test=true")
@@ -727,87 +782,119 @@ def main() -> None:
                     exp_idx, shot)
         experiment_name = f"exp{exp_idx}_{shot}shot"
         # P0-3: val 与 test adaptation 任务来自原始样本级 disjoint 的两个数据集。
-        val_sampler = bundle.make_adaptation_sampler(
-            k_shot=shot, q_query=q_query, mode=mode, n_way=n_way,
-            seed=seed + exp_idx, disallow_support_query_overlap=disallow_ov,
-            disallow_internal_overlap=disallow_internal, split="val")
-        test_sampler = bundle.make_adaptation_sampler(
-            k_shot=shot, q_query=q_query, mode=mode, n_way=n_way,
-            seed=seed + 1000 + exp_idx, disallow_support_query_overlap=disallow_ov,
-            disallow_internal_overlap=disallow_internal, split="test")
-
         manifest_dir = Path(args.out) / "manifests"
         manifest_dir.mkdir(parents=True, exist_ok=True)
-        val_manifest_path = Path(
-            external_val_manifest
-            or manifest_dir / f"validation_{shot}shot.json"
-        )
-        test_manifest_path = Path(
-            external_test_manifest
-            or manifest_dir / f"test_{shot}shot.json"
-        )
+        val_tasks: List[MetaTask] = []
+        test_tasks: List[MetaTask] = []
+        val_manifest = None
+        test_manifest = None
+        val_manifest_path = None
+        test_manifest_path = None
+        val_manifest_hash = None
+        test_manifest_hash = None
 
-        if val_manifest_path.exists():
-            val_manifest = read_task_manifest(
-                val_manifest_path, verify_sha256=True
+        if args.phase in {"validation", "both"}:
+            val_sampler = bundle.make_adaptation_sampler(
+                k_shot=shot, q_query=q_query, mode=mode, n_way=n_way,
+                seed=seed + exp_idx,
+                disallow_support_query_overlap=disallow_ov,
+                disallow_internal_overlap=disallow_internal,
+                split="val",
             )
-            _manifest_protocol_check(
-                val_manifest,
-                split="val", shot=shot, q_query=q_query,
-                artifact_path=args.artifacts, artifact=art,
-                unknown_class=artifact_unknown,
+            val_manifest_path = Path(
+                external_val_manifest
+                or manifest_dir / f"validation_{shot}shot.json"
             )
-            val_tasks = load_tasks_from_manifest(
-                val_manifest, bundle.adapt_val_dataset
-            )
-        else:
-            if external_val_manifest:
-                raise FileNotFoundError(external_val_manifest)
-            val_tasks = _sample_tasks(val_sampler, n_val)
-            val_manifest = _write_run_manifest(
-                val_manifest_path, val_tasks,
-                split="val", shot=shot, q_query=q_query,
-                task_seed=seed + exp_idx,
-                artifact_path=args.artifacts, artifact=art,
-                dataset=bundle.adapt_val_dataset,
-                unknown_class=artifact_unknown, cfg=cfg,
-            )
+            if val_manifest_path.exists():
+                val_manifest = read_task_manifest(
+                    val_manifest_path, verify_sha256=True
+                )
+                _manifest_protocol_check(
+                    val_manifest,
+                    split="val", shot=shot, q_query=q_query,
+                    artifact_path=args.artifacts, artifact=art,
+                    unknown_class=artifact_unknown,
+                )
+                val_tasks = load_tasks_from_manifest(
+                    val_manifest, bundle.adapt_val_dataset
+                )
+            else:
+                if external_val_manifest:
+                    raise FileNotFoundError(external_val_manifest)
+                val_tasks = _sample_tasks(val_sampler, n_val)
+                val_manifest = _write_run_manifest(
+                    val_manifest_path, val_tasks,
+                    split="val", shot=shot, q_query=q_query,
+                    task_seed=seed + exp_idx,
+                    artifact_path=args.artifacts, artifact=art,
+                    dataset=bundle.adapt_val_dataset,
+                    unknown_class=artifact_unknown, cfg=cfg,
+                )
+            val_manifest_hash = sha256_file(val_manifest_path)
+            used_manifest_paths.append(val_manifest_path)
+            overlap_rows.extend(_task_overlap_audit(
+                val_tasks, val_sampler, f"{experiment_name}_val"
+            ))
 
-        if test_manifest_path.exists():
-            test_manifest = read_task_manifest(
-                test_manifest_path, verify_sha256=True
+        if args.phase in {"test", "both"}:
+            # Frozen test consumes a pre-existing manifest. Only the deprecated
+            # compatibility path may generate fresh test tasks.
+            test_sampler = None
+            if args.phase == "both":
+                test_sampler = bundle.make_adaptation_sampler(
+                    k_shot=shot, q_query=q_query, mode=mode, n_way=n_way,
+                    seed=seed + 1000 + exp_idx,
+                    disallow_support_query_overlap=disallow_ov,
+                    disallow_internal_overlap=disallow_internal,
+                    split="test",
+                )
+            test_manifest_path = Path(
+                external_test_manifest
+                or manifest_dir / f"test_{shot}shot.json"
             )
-            _manifest_protocol_check(
-                test_manifest,
-                split="test", shot=shot, q_query=q_query,
-                artifact_path=args.artifacts, artifact=art,
-                unknown_class=artifact_unknown,
-            )
-            test_tasks = load_tasks_from_manifest(
-                test_manifest, bundle.adapt_test_dataset
-            )
-        else:
-            if external_test_manifest:
-                raise FileNotFoundError(external_test_manifest)
-            test_tasks = _sample_tasks(test_sampler, n_test)
-            test_manifest = _write_run_manifest(
-                test_manifest_path, test_tasks,
-                split="test", shot=shot, q_query=q_query,
-                task_seed=seed + 1000 + exp_idx,
-                artifact_path=args.artifacts, artifact=art,
-                dataset=bundle.adapt_test_dataset,
-                unknown_class=artifact_unknown, cfg=cfg,
-            )
-        assert_manifest_split_isolation(val_manifest, test_manifest)
-        used_manifest_paths.extend([val_manifest_path, test_manifest_path])
-        effective_n_test = len(test_tasks)
-        overlap_rows.extend(_task_overlap_audit(val_tasks, val_sampler, f"{experiment_name}_val"))
-        overlap_rows.extend(_task_overlap_audit(test_tasks, test_sampler, f"{experiment_name}_test"))
+            if args.phase == "test" and not test_manifest_path.exists():
+                raise FileNotFoundError(
+                    "frozen test requires an existing explicit test manifest: "
+                    f"{test_manifest_path}"
+                )
+            if test_manifest_path.exists():
+                test_manifest = read_task_manifest(
+                    test_manifest_path, verify_sha256=True
+                )
+                _manifest_protocol_check(
+                    test_manifest,
+                    split="test", shot=shot, q_query=q_query,
+                    artifact_path=args.artifacts, artifact=art,
+                    unknown_class=artifact_unknown,
+                )
+                test_tasks = load_tasks_from_manifest(
+                    test_manifest, bundle.adapt_test_dataset
+                )
+            else:
+                assert test_sampler is not None
+                test_tasks = _sample_tasks(test_sampler, n_test)
+                test_manifest = _write_run_manifest(
+                    test_manifest_path, test_tasks,
+                    split="test", shot=shot, q_query=q_query,
+                    task_seed=seed + 1000 + exp_idx,
+                    artifact_path=args.artifacts, artifact=art,
+                    dataset=bundle.adapt_test_dataset,
+                    unknown_class=artifact_unknown, cfg=cfg,
+                )
+            test_manifest_hash = sha256_file(test_manifest_path)
+            used_manifest_paths.append(test_manifest_path)
+            if test_sampler is not None:
+                overlap_rows.extend(_task_overlap_audit(
+                    test_tasks, test_sampler, f"{experiment_name}_test"
+                ))
 
-        val_manifest_hash = sha256_file(val_manifest_path)
-        test_manifest_hash = sha256_file(test_manifest_path)
+        if args.phase == "both":
+            assert val_manifest is not None and test_manifest is not None
+            assert_manifest_split_isolation(val_manifest, test_manifest)
+
         frozen_selection = None
         if args.phase == "test":
+            assert selection_input is not None
             frozen_selection = selection_input.get("experiments", {}).get(
                 experiment_name
             )
@@ -815,14 +902,9 @@ def main() -> None:
                 raise ValueError(
                     f"Selection receipt has no entry for {experiment_name}"
                 )
-            if frozen_selection.get("validation_manifest_sha256") != val_manifest_hash:
-                raise ValueError(
-                    f"Validation manifest hash mismatch for {experiment_name}"
-                )
             if frozen_selection.get("test_manifest_sha256") != test_manifest_hash:
                 raise ValueError(
-                    f"Test manifest hash mismatch for {experiment_name}; refusing "
-                    "to evaluate a different test task set"
+                    f"Frozen test manifest hash mismatch for {experiment_name}"
                 )
             sgd_lr = float(frozen_selection["selected_learning_rates"]["SGD"])
             adam_lr = float(frozen_selection["selected_learning_rates"]["Adam"])
@@ -851,15 +933,19 @@ def main() -> None:
 
         shot_result = {
             "shot": shot, "sgd_lr": sgd_lr, "adam_lr": adam_lr,
-            "n_val_tasks": len(val_tasks), "n_test_tasks": effective_n_test, "methods": {},
+            "n_val_tasks": len(val_tasks),
+            "n_test_tasks": len(test_tasks),
+            "methods": {},
             "baseline_lr_validation": lr_boundary,
         }
-        validation_reuse = manifest_reuse_statistics(val_manifest)
-        test_reuse = manifest_reuse_statistics(test_manifest)
-        for split_name, reuse in (
-            ("validation", validation_reuse),
-            ("test", test_reuse),
+        manifest_receipts = {}
+        for split_name, manifest, manifest_path, manifest_hash in (
+            ("validation", val_manifest, val_manifest_path, val_manifest_hash),
+            ("test", test_manifest, test_manifest_path, test_manifest_hash),
         ):
+            if manifest is None or manifest_path is None:
+                continue
+            reuse = manifest_reuse_statistics(manifest)
             if int(reuse["raw_disjoint_task_count_greedy"]) < int(
                 reuse["task_count"]
             ):
@@ -872,31 +958,21 @@ def main() -> None:
                     reuse["raw_disjoint_task_count_greedy"],
                     reuse["task_count"],
                 )
-        shot_result["task_manifests"] = {
-            "validation": {
-                "path": str(val_manifest_path.resolve()),
-                "sha256": val_manifest_hash,
-                "reuse_statistics": validation_reuse,
+            manifest_receipts[split_name] = {
+                "path": str(manifest_path.resolve()),
+                "sha256": manifest_hash,
+                "reuse_statistics": reuse,
                 "independent_replication_claim_allowed": (
-                    int(validation_reuse["raw_disjoint_task_count_greedy"])
-                    == int(validation_reuse["task_count"])
+                    int(reuse["raw_disjoint_task_count_greedy"])
+                    == int(reuse["task_count"])
                 ),
-            },
-            "test": {
-                "path": str(test_manifest_path.resolve()),
-                "sha256": test_manifest_hash,
-                "reuse_statistics": test_reuse,
-                "independent_replication_claim_allowed": (
-                    int(test_reuse["raw_disjoint_task_count_greedy"])
-                    == int(test_reuse["task_count"])
-                ),
-            },
-            "validation_test_raw_row_overlap": 0,
-        }
+            }
+        if args.phase == "both":
+            manifest_receipts["validation_test_raw_row_overlap"] = 0
+        shot_result["task_manifests"] = manifest_receipts
         experiment_selection = {
             "shot": int(shot),
             "validation_manifest_sha256": val_manifest_hash,
-            "test_manifest_sha256": test_manifest_hash,
             "selected_learning_rates": {
                 "SGD": float(sgd_lr),
                 "Adam": float(adam_lr),
@@ -904,6 +980,8 @@ def main() -> None:
             "baseline_lr_validation": lr_boundary,
             "methods": {},
         }
+        if args.phase == "both":
+            experiment_selection["test_manifest_sha256"] = test_manifest_hash
         trajectories: Dict[str, List[float]] = {}
         speed_bars: Dict[str, float] = {}
 
@@ -927,6 +1005,7 @@ def main() -> None:
                 val_outs_for_stop = run_method(
                     adapter, init_params, val_tasks, factory, adapt_names,
                     n_way, max_steps, target_grid, attack_idx,
+                    collect_update_stats=True,
                 )
                 selected_stop_step = select_validation_stop_step(
                     val_outs_for_stop, metric="macro_f1"
@@ -965,6 +1044,30 @@ def main() -> None:
                     "adaptation_analysis": validation_summary,
                     "descriptive_only_test_oracle": {},
                 }
+                diagnostic_rows.extend(_diagnostic_rows(
+                    val_outs_for_stop,
+                    experiment=experiment_name,
+                    shot=shot,
+                    method=name,
+                    unknown_class=artifact_unknown,
+                ))
+                method_update_rows = []
+                for task_id, outcome in enumerate(val_outs_for_stop):
+                    if outcome.update_trace is not None:
+                        method_update_rows.extend(update_rows_to_dicts(
+                            outcome.update_trace.rows,
+                            experiment=experiment_name,
+                            shot=shot,
+                            method=name,
+                            task_id=task_id,
+                        ))
+                update_rows.extend(method_update_rows)
+                shot_result["methods"][name]["update_clip_summary"] = (
+                    _update_clip_summary(method_update_rows, name, experiment_name)
+                )
+                shot_result["methods"][name]["nonfinite_count"] = int(
+                    _nonfinite_count(val_outs_for_stop)
+                )
                 task_rows.extend(_task_metric_rows(
                     val_outs_for_stop,
                     experiment=experiment_name,
@@ -1200,8 +1303,38 @@ def main() -> None:
                 cfg.get("provenance", {}).get("hash_raw_data", True)
             ),
         )
-    write_provenance_receipt(
-        os.path.join(args.out, "provenance.json"),
+    provenance_path = os.path.join(args.out, "provenance.json")
+    effective_dataset = (
+        bundle.adapt_val_dataset
+        if args.phase == "validation"
+        else bundle.adapt_test_dataset
+        if args.phase == "test"
+        else None
+    )
+    effective_dataset_name = (
+        "adapt_val_dataset"
+        if args.phase == "validation"
+        else "adapt_test_dataset"
+        if args.phase == "test"
+        else "adapt_val_dataset+adapt_test_dataset"
+    )
+    effective_fingerprint = (
+        dataset_fingerprint(effective_dataset)
+        if effective_dataset is not None
+        else None
+    )
+    finished_at = datetime.now(timezone.utc)
+    duration_seconds = time.perf_counter() - started_clock
+    split_access = {
+        "validation_dataset_constructed": bool(
+            bundle.adaptation_validation_constructed
+        ),
+        "test_dataset_constructed": bool(bundle.adaptation_test_constructed),
+        "validation_dataset_accessed": args.phase in {"validation", "both"},
+        "test_dataset_accessed": args.phase in {"test", "both"},
+    }
+    provenance_receipt = write_provenance_receipt(
+        provenance_path,
         config=cfg.to_dict(),
         cache_key=data_cache_key(cfg),
         raw_files=raw_files,
@@ -1215,8 +1348,99 @@ def main() -> None:
             ),
         },
         task_manifests=used_manifest_paths,
+        dataset_role=role,
+        dataset_fingerprint=effective_fingerprint,
+        split_access=split_access,
+        execution={
+            "phase": args.phase,
+            "effective_dataset": effective_dataset_name,
+            "metaopt_training_ran": False,
+            "metaopt_evaluation_ran": True,
+            "started_at_utc": started_at.isoformat(),
+            "finished_at_utc": finished_at.isoformat(),
+            "duration_seconds": duration_seconds,
+            "command_line": list(sys.argv),
+        },
     )
     logger.info("实验完成: %s", out_json)
+    required_artifacts = [
+        out_json,
+        os.path.join(args.out, "fixed_budget_results.csv"),
+        os.path.join(args.out, "task_level_results.csv"),
+        os.path.join(args.out, "adaptation_curves.csv"),
+        os.path.join(args.out, "result_schema.json"),
+        prediction_path,
+        provenance_path,
+    ]
+    if args.phase != "test":
+        required_artifacts.append(selection_receipt_path)
+    completion = write_completion_receipt(
+        os.path.join(args.out, "completion_receipt.json"),
+        stage=f"evaluation_{args.phase}",
+        status="success",
+        started_at_utc=started_at.isoformat(),
+        finished_at_utc=finished_at.isoformat(),
+        duration_seconds=duration_seconds,
+        exit_code=0,
+        output_paths=[args.out],
+        required_artifacts=required_artifacts,
+        execution_state=gate,
+        details={
+            "effective_config_sha256": provenance_receipt[
+                "effective_config_sha256"
+            ],
+            "dataset_role": role,
+            "effective_dataset": effective_dataset_name,
+            "dataset_fingerprint": effective_fingerprint,
+            "manifest_paths": [
+                str(path.resolve()) for path in used_manifest_paths
+            ],
+            "manifest_sha256": [
+                sha256_file(path) for path in used_manifest_paths
+            ],
+            "theta0_sha256": tensor_state_sha256(art["meta_init_state"]),
+            "checkpoint_sha256": sha256_file(args.artifacts),
+            **split_access,
+            "metaopt_training_ran": False,
+            "metaopt_evaluation_ran": True,
+            "command_line": list(sys.argv),
+        },
+    )
+    return completion
+
+
+def main() -> None:
+    args = parse_args()
+    started_at = datetime.now(timezone.utc)
+    started_clock = time.perf_counter()
+    try:
+        run(args)
+    except BaseException as exc:
+        status = "interrupted" if isinstance(exc, KeyboardInterrupt) else "failed"
+        exit_code = 130 if isinstance(exc, KeyboardInterrupt) else 1
+        finished_at = datetime.now(timezone.utc)
+        try:
+            write_completion_receipt(
+                Path(args.out) / "completion_receipt.json",
+                stage=f"evaluation_{args.phase}",
+                status=status,
+                started_at_utc=started_at.isoformat(),
+                finished_at_utc=finished_at.isoformat(),
+                duration_seconds=time.perf_counter() - started_clock,
+                exit_code=exit_code,
+                output_paths=[args.out],
+                execution_state={},
+                details={
+                    "error_type": type(exc).__name__,
+                    "error": str(exc),
+                    "command_line": list(sys.argv),
+                    "metaopt_training_ran": False,
+                    "completion_artifacts_verified": False,
+                },
+            )
+        except Exception as receipt_exc:  # pragma: no cover
+            logger.error("Failed to write failure receipt: %s", receipt_exc)
+        raise
 
 
 if __name__ == "__main__":

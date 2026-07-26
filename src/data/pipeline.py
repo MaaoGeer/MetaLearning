@@ -42,26 +42,34 @@ class DataBundle:
     known_class_to_idx: Dict[str, int]
     n_known: int
     unknown_class: str
-    meta_train_dataset: IntrusionDataset
-    meta_val_dataset: IntrusionDataset
-    meta_train_sampler: FewShotTaskSampler
-    meta_val_sampler: FewShotTaskSampler
+    meta_train_dataset: Optional[IntrusionDataset]
+    meta_val_dataset: Optional[IntrusionDataset]
+    meta_train_sampler: Optional[FewShotTaskSampler]
+    meta_val_sampler: Optional[FewShotTaskSampler]
     loao: LOAOResult
     _adapt_class_to_idx: Dict[str, int]
     _adapt_dataset: Optional[IntrusionDataset]
-    _adapt_val_dataset: IntrusionDataset
+    _adapt_val_dataset: Optional[IntrusionDataset]
     _adapt_test_dataset: Optional[IntrusionDataset]
+    adaptation_dataset_role: str
+    adaptation_validation_constructed: bool
+    adaptation_test_constructed: bool
 
     @property
     def adapt_val_dataset(self) -> IntrusionDataset:
+        if self._adapt_val_dataset is None:
+            raise RuntimeError(
+                "adapt_val_dataset was not constructed for pipeline role "
+                f"{self.adaptation_dataset_role!r}"
+            )
         return self._adapt_val_dataset
 
     @property
     def adapt_test_dataset(self) -> IntrusionDataset:
         if self._adapt_test_dataset is None:
             raise RuntimeError(
-                "adapt_test_dataset was intentionally not constructed for this "
-                "validation-only pipeline"
+                "adapt_test_dataset was not constructed for pipeline role "
+                f"{self.adaptation_dataset_role!r}"
             )
         return self._adapt_test_dataset
 
@@ -77,10 +85,18 @@ class DataBundle:
         split: str = "test",
     ) -> AdaptationTaskSampler:
         if split == "val":
+            if self._adapt_val_dataset is None:
+                raise RuntimeError(
+                    "validation adaptation data is unavailable for pipeline role "
+                    f"{self.adaptation_dataset_role!r}"
+                )
             dataset = self._adapt_val_dataset
         elif split == "test":
             if self._adapt_test_dataset is None:
-                raise RuntimeError("test adaptation data is unavailable in validation-only mode")
+                raise RuntimeError(
+                    "test adaptation data is unavailable for pipeline role "
+                    f"{self.adaptation_dataset_role!r}"
+                )
             dataset = self._adapt_test_dataset
         elif split == "all":
             if self._adapt_dataset is None:
@@ -295,11 +311,12 @@ def build_pipeline(
     cfg: Config,
     seed: int = 42,
     *,
-    adaptation_dataset_role: str = "all",
+    adaptation_dataset_role: str,
 ) -> DataBundle:
-    if adaptation_dataset_role not in {"all", "validation"}:
+    if adaptation_dataset_role not in {"none", "validation", "test", "all"}:
         raise ValueError(
-            "adaptation_dataset_role must be 'all' or 'validation', got "
+            "adaptation_dataset_role must be one of "
+            "'none'|'validation'|'test'|'all', got "
             f"{adaptation_dataset_role!r}"
         )
     dcfg = cfg.data
@@ -334,54 +351,74 @@ def build_pipeline(
 
     feature_dim = len(loao.feature_columns)
     known_c2i = loao.known_class_to_idx
-    meta_train_ds = build_windowed_dataset(loao.train, known_c2i, window_size, stride, cfg=cfg)
-    meta_val_ds = build_windowed_dataset(loao.eval, known_c2i, window_size, stride, cfg=cfg)
-
-    allowed = list(known_c2i.values())
-    mode = str(dcfg.get("task_mode", "nway")).lower()
-    meta_n_way = 2 if mode == "binary" else int(dcfg.n_way)
-    binary_pair_mode = str(dcfg.get("binary_pair_mode", "any_two")).lower()
-    benign_class = known_c2i.get("benign")
-    meta_train_sampler = make_meta_sampler(
-        meta_train_ds,
-        allowed,
-        n_way=meta_n_way,
-        k_shot=int(dcfg.k_shot),
-        q_query=int(dcfg.q_query),
-        seed=seed,
-        disallow_support_query_overlap=disallow_overlap,
-        disallow_internal_overlap=disallow_internal_overlap,
-        binary_pair_mode=binary_pair_mode,
-        benign_class=benign_class,
-    )
-    meta_val_sampler = make_meta_sampler(
-        meta_val_ds,
-        allowed,
-        n_way=meta_n_way,
-        k_shot=int(dcfg.k_shot),
-        q_query=int(dcfg.q_query),
-        seed=seed + 1,
-        disallow_support_query_overlap=disallow_overlap,
-        disallow_internal_overlap=disallow_internal_overlap,
-        binary_pair_mode=binary_pair_mode,
-        benign_class=benign_class,
-    )
+    meta_train_ds: Optional[IntrusionDataset] = None
+    meta_val_ds: Optional[IntrusionDataset] = None
+    meta_train_sampler: Optional[FewShotTaskSampler] = None
+    meta_val_sampler: Optional[FewShotTaskSampler] = None
+    if adaptation_dataset_role in {"none", "all"}:
+        meta_train_ds = build_windowed_dataset(
+            loao.train, known_c2i, window_size, stride, cfg=cfg
+        )
+        meta_val_ds = build_windowed_dataset(
+            loao.eval, known_c2i, window_size, stride, cfg=cfg
+        )
+        allowed = list(known_c2i.values())
+        mode = str(dcfg.get("task_mode", "nway")).lower()
+        meta_n_way = 2 if mode == "binary" else int(dcfg.n_way)
+        binary_pair_mode = str(dcfg.get("binary_pair_mode", "any_two")).lower()
+        benign_class = known_c2i.get("benign")
+        meta_train_sampler = make_meta_sampler(
+            meta_train_ds,
+            allowed,
+            n_way=meta_n_way,
+            k_shot=int(dcfg.k_shot),
+            q_query=int(dcfg.q_query),
+            seed=seed,
+            disallow_support_query_overlap=disallow_overlap,
+            disallow_internal_overlap=disallow_internal_overlap,
+            binary_pair_mode=binary_pair_mode,
+            benign_class=benign_class,
+        )
+        meta_val_sampler = make_meta_sampler(
+            meta_val_ds,
+            allowed,
+            n_way=meta_n_way,
+            k_shot=int(dcfg.k_shot),
+            q_query=int(dcfg.q_query),
+            seed=seed + 1,
+            disallow_support_query_overlap=disallow_overlap,
+            disallow_internal_overlap=disallow_internal_overlap,
+            binary_pair_mode=binary_pair_mode,
+            benign_class=benign_class,
+        )
 
     if str(dcfg.get("window_label_strategy", "last")) == "any_attack":
         adapt_c2i = {"benign": 0, loao.unknown_class: 1, "attack": 1}
     else:
         adapt_c2i = build_class_index(loao.known_classes + [loao.unknown_class])
 
-    adapt_val_ratio = float(dcfg.get("adapt_val_ratio", 0.5))
-    eval_val_sp, eval_test_sp = _temporal_subsplit(loao.eval, adapt_val_ratio)
-    unk_val_sp, unk_test_sp = _temporal_subsplit(loao.unknown, adapt_val_ratio)
-
-    adapt_val_ds = _build_adapt_dataset(
-        eval_val_sp, unk_val_sp, adapt_c2i, window_size, stride, cfg)
+    adapt_val_ds: Optional[IntrusionDataset] = None
     adapt_test_ds: Optional[IntrusionDataset] = None
     adapt_full_ds: Optional[IntrusionDataset] = None
+    eval_val_sp: Optional[SplitArrays] = None
+    unk_val_sp: Optional[SplitArrays] = None
     eval_test_source: Optional[SplitArrays] = None
-    if adaptation_dataset_role == "all":
+    unk_test_sp: Optional[SplitArrays] = None
+    if adaptation_dataset_role != "none":
+        adapt_val_ratio = float(dcfg.get("adapt_val_ratio", 0.5))
+        eval_val_sp, eval_test_sp = _temporal_subsplit(
+            loao.eval, adapt_val_ratio
+        )
+        unk_val_sp, unk_test_sp = _temporal_subsplit(
+            loao.unknown, adapt_val_ratio
+        )
+    if adaptation_dataset_role in {"validation", "all"}:
+        assert eval_val_sp is not None and unk_val_sp is not None
+        adapt_val_ds = _build_adapt_dataset(
+            eval_val_sp, unk_val_sp, adapt_c2i, window_size, stride, cfg
+        )
+    if adaptation_dataset_role in {"test", "all"}:
+        assert unk_test_sp is not None
         if len(loao.test) < window_size:
             if strict_adapt_test:
                 raise ValueError(
@@ -400,17 +437,24 @@ def build_pipeline(
             eval_test_source = loao.test
         adapt_test_ds = _build_adapt_dataset(
             eval_test_source, unk_test_sp, adapt_c2i, window_size, stride, cfg)
+    if adaptation_dataset_role == "all":
         adapt_full_ds = _build_adapt_dataset(
             loao.eval, loao.unknown, adapt_c2i, window_size, stride, cfg)
-    if adapt_val_ds is None or (
-        adaptation_dataset_role == "all" and adapt_test_ds is None
-    ):
+    if adaptation_dataset_role in {"validation", "all"} and adapt_val_ds is None:
         raise ValueError(
-            "Not enough adaptation data to build disjoint val/test windows. "
+            "Not enough adaptation validation data to build windows. "
+            "Reduce window_size/stride/k_shot/q_query or increase max_per_class."
+        )
+    if adaptation_dataset_role in {"test", "all"} and adapt_test_ds is None:
+        raise ValueError(
+            "Not enough adaptation test data to build windows. "
             "Reduce window_size/stride/k_shot/q_query or increase max_per_class."
         )
     unknown_idx = adapt_c2i[loao.unknown_class]
-    val_unknown_windows = len(adapt_val_ds.class_to_indices.get(unknown_idx, []))
+    val_unknown_windows = (
+        len(adapt_val_ds.class_to_indices.get(unknown_idx, []))
+        if adapt_val_ds is not None else 0
+    )
     test_unknown_windows = (
         len(adapt_test_ds.class_to_indices.get(unknown_idx, []))
         if adapt_test_ds is not None else 0
@@ -426,18 +470,21 @@ def build_pipeline(
     )
 
     audit_pipeline_splits(loao)
-    _log_split_audit("meta_train", loao.train, meta_train_ds)
-    _log_split_audit("meta_val", loao.eval, meta_val_ds)
-    _log_split_audit("adapt_val_known", eval_val_sp, None)
-    _log_split_audit("adapt_val_unknown", unk_val_sp, None)
+    if meta_train_ds is not None and meta_val_ds is not None:
+        _log_split_audit("meta_train", loao.train, meta_train_ds)
+        _log_split_audit("meta_val", loao.eval, meta_val_ds)
+    if eval_val_sp is not None and unk_val_sp is not None and adapt_val_ds is not None:
+        _log_split_audit("adapt_val_known", eval_val_sp, None)
+        _log_split_audit("adapt_val_unknown", unk_val_sp, None)
     if eval_test_source is not None:
         _log_split_audit("adapt_test_known", eval_test_source, None)
         _log_split_audit("adapt_test_unknown", unk_test_sp, None)
-    _log_split_audit("adapt_val", SplitArrays(
-        features=np.zeros((0, feature_dim), dtype=np.float32),
-        labels=np.array([], dtype=object),
-        order=np.array([], dtype=float),
-    ), adapt_val_ds)
+    if adapt_val_ds is not None:
+        _log_split_audit("adapt_val", SplitArrays(
+            features=np.zeros((0, feature_dim), dtype=np.float32),
+            labels=np.array([], dtype=object),
+            order=np.array([], dtype=float),
+        ), adapt_val_ds)
     if adapt_test_ds is not None:
         _log_split_audit("adapt_test", SplitArrays(
             features=np.zeros((0, feature_dim), dtype=np.float32),
@@ -452,9 +499,9 @@ def build_pipeline(
         stride,
         dcfg.get("windowing_mode", "temporal"),
         dcfg.get("window_label_strategy", "last"),
-        len(meta_train_ds),
-        len(meta_val_ds),
-        len(adapt_val_ds),
+        len(meta_train_ds) if meta_train_ds is not None else 0,
+        len(meta_val_ds) if meta_val_ds is not None else 0,
+        len(adapt_val_ds) if adapt_val_ds is not None else 0,
         len(adapt_test_ds) if adapt_test_ds is not None else 0,
     )
 
@@ -478,4 +525,7 @@ def build_pipeline(
         ),
         _adapt_val_dataset=adapt_val_ds,
         _adapt_test_dataset=adapt_test_ds,
+        adaptation_dataset_role=adaptation_dataset_role,
+        adaptation_validation_constructed=adapt_val_ds is not None,
+        adaptation_test_constructed=adapt_test_ds is not None,
     )

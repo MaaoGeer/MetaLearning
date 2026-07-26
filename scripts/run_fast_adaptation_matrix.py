@@ -40,6 +40,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--skip-existing", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--quick", action="store_true")
+    parser.add_argument("--expected-commit", required=True)
+    parser.add_argument("--expected-source-state")
     parser.add_argument("--override", nargs="*", default=[])
     return parser.parse_args()
 
@@ -184,7 +186,11 @@ def _audit_unknown_windows(
             "reason": "",
         }
         try:
-            bundle = build_pipeline(audit_cfg, seed=int(audit_cfg.experiment.get("seed", 42)))
+            bundle = build_pipeline(
+                audit_cfg,
+                seed=int(audit_cfg.experiment.get("seed", 42)),
+                adaptation_dataset_role="all",
+            )
             unknown_idx = bundle._adapt_class_to_idx[bundle.unknown_class]
             val_windows = len(bundle.adapt_val_dataset.class_to_indices.get(unknown_idx, []))
             test_windows = len(bundle.adapt_test_dataset.class_to_indices.get(unknown_idx, []))
@@ -382,6 +388,14 @@ def main() -> None:
                             "--config", args.config,
                             "--dataset", args.dataset,
                             "--out", str(artifact),
+                            "--expected-commit", args.expected_commit,
+                            *(
+                                [
+                                    "--expected-source-state",
+                                    args.expected_source_state,
+                                ]
+                                if args.expected_source_state else []
+                            ),
                             "--override", *common_overrides,
                         ], args.dry_run)
 
@@ -400,6 +414,15 @@ def main() -> None:
                             sys.executable, "scripts/run_experiments.py",
                             "--artifacts", str(artifact),
                             "--out", str(run_dir / "evaluation"),
+                            "--phase", "validation",
+                            "--expected-commit", args.expected_commit,
+                            *(
+                                [
+                                    "--expected-source-state",
+                                    args.expected_source_state,
+                                ]
+                                if args.expected_source_state else []
+                            ),
                             "--override", *evaluation_overrides,
                         ], args.dry_run)
 
